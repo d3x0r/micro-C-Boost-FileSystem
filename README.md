@@ -6,12 +6,30 @@ https://gist.github.com/d3x0r/3ce9cced42446b8f39c081e7425ea6d8
 
 # FileSystem
 
-This is the smallest subset.  It includes most things 
+This includes all of sack_ucb_typelib plus filesystem and system utility abstractions.
+
+
 
 This is a C file, but if the .h is included as C++ then namespaces will
 be used, and the .c file should be renamed as .cc/.cpp/... or compiler option
 otherwise forced to C++.
 
+## External Dependencies
+
+on Windows
+ - winmm  - for timeGetTime() (millisecond accurate clock)
+ - psapi   - system process info
+ - ntdll   - system dll info
+ - ole32   - file system utility initialization (CoInitialize)
+ - ws2_32  - systemlog UDP logging to a syslog receiver uses sockets.
+
+on Linux
+ - m
+ - dl
+ - pthread
+
+
+## Rough Source List / Build Script
 
 ```
 @set SRCS= %SRCS%   ../../src/typelib/typecode.c 
