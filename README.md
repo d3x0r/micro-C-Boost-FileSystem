@@ -2,7 +2,9 @@
 
 This is a family of amalgamated products from [SACK](https://www.github.com/d3x0r/sack).  
 Tried to host this as a gist; but that didn't work out so well.  
-https://gist.github.com/d3x0r/3ce9cced42446b8f39c081e7425ea6d8
+
+Other Amalgamations
+ - [Minimal; just types](https://github.com/d3x0r/micro-C-Boost-Types)
 
 # FileSystem
 
