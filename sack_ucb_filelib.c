@@ -23,6 +23,7 @@
 #define NEED_SHLOBJ
 #define JSON_PARSER_MAIN_SOURCE
 #define FORCE_COLOR_MACROS
+#define WINFILE_COMMON_SOURCE
 #include <stdio.h>
 #include <stdarg.h>
 /* Includes the system platform as required or appropriate. If
@@ -37,6 +38,9 @@
 #  undef _XOPEN_SOURCE
 #  define _XOPEN_SOURCE 500
 #endif
+#  ifndef _GNU_SOURCE
+#    define _GNU_SOURCE
+#  endif
 #ifndef STANDARD_HEADERS_INCLUDED
 /* multiple inclusion protection symbol */
 #define STANDARD_HEADERS_INCLUDED
@@ -166,18 +170,18 @@
 #    define stricmp _stricmp
 #    define strdup _strdup
 #  endif
-#ifdef WANT_MMSYSTEM
-#  include <mmsystem.h>
-#endif
-#if USE_NATIVE_TIME_GET_TIME
+#  ifdef WANT_MMSYSTEM
+#    include <mmsystem.h>
+#  endif
+#  if USE_NATIVE_TIME_GET_TIME
 //#  include <windowsx.h>
 // we like timeGetTime() instead of GetTickCount()
 //#  include <mmsystem.h>
-#ifdef __cplusplus
+#    ifdef __cplusplus
 extern "C"
-#endif
+#    endif
 __declspec(dllimport) DWORD WINAPI timeGetTime(void);
-#endif
+#  endif
 #  ifdef WIN32
 #    if defined( NEED_SHLAPI )
 #      include <shlwapi.h>
@@ -208,9 +212,6 @@ __declspec(dllimport) DWORD WINAPI timeGetTime(void);
 #  endif
  // ifdef unix/linux
 #else
-#  ifndef _GNU_SOURCE
-#    define _GNU_SOURCE
-#  endif
 #  include <pthread.h>
 #  include <sched.h>
 #  include <unistd.h>
@@ -320,7 +321,7 @@ But WHO doesn't have stdint?  BTW is sizeof( size_t ) == sizeof( void* )
 #    define DeclareThreadLocal static __declspec(thread)
 #    define DeclareThreadVar __declspec(thread)
 #  endif
-#elif !defined( __NO_THREAD_LOCAL__ ) && ( defined( __GNUC__ ) )
+#elif !defined( __NO_THREAD_LOCAL__ ) && ( defined( __GNUC__ ) || defined( __MAC__ ) )
 #    define HAS_TLS 1
 #    ifdef __cplusplus
 #      define DeclareThreadLocal static thread_local
@@ -1387,10 +1388,8 @@ typedef uint64_t THREAD_ID;
 // this is now always the case
 // it's a safer solution anyhow...
 #  ifdef __MAC__
-#    ifndef SYS_thread_selfid
-#      define SYS_thread_selfid                 372
-#    endif
-#    define GetMyThreadID()  (( ((uint64_t)getpid()) << 32 ) | ( (uint64_t)( syscall(SYS_thread_selfid) ) ) )
+     DeclareThreadLocal uint64_t tmpThreadid;
+#    define GetMyThreadID()  ((pthread_threadid_np(NULL, &tmpThreadid)),tmpThreadid)
 #  else
 #    ifndef GETPID_RETURNS_PPID
 #      define GETPID_RETURNS_PPID
@@ -2031,8 +2030,7 @@ TYPELIB_PROC  POINTER TYPELIB_CALLTYPE    SetDataItemEx ( PDATALIST *ppdl, INDEX
 TYPELIB_PROC  POINTER TYPELIB_CALLTYPE    SetDataItemEx ( PDATALIST *ppdl, INDEX idx, POINTER data DBG_PASS );
 /* \Returns a pointer to the data at a specified index.
    Parameters
-   \ \
-   ppdl :  address of a PDATALIST
+   \    ppdl :  address of a PDATALIST
    idx :   index of element to get                      */
 TYPELIB_PROC  POINTER TYPELIB_CALLTYPE    GetDataItem ( PDATALIST *ppdl, INDEX idx );
 /* Removes a data element from the list (moves all other
@@ -2349,17 +2347,24 @@ TYPELIB_PROC  void TYPELIB_CALLTYPE         EmptyDataQueue ( PDATAQUEUE *pplq );
  * reallocated and moved.
  */
 TYPELIB_PROC  LOGICAL TYPELIB_CALLTYPE  PeekDataQueueEx    ( PDATAQUEUE *pplq, POINTER ResultBuffer, INDEX idx );
-/* <combine sack::containers::data_queue::PeekDataQueueEx@PDATAQUEUE *@POINTER@INDEX>
-   \ \                                                                                */
 #define PeekDataQueueEx( q, type, result, idx ) PeekDataQueueEx( q, (POINTER)result, idx )
 /*
  * Result buffer is filled with the last element, and the result is true, otherwise the return
  * value is FALSE, and the data was not filled in.
  */
 TYPELIB_PROC  LOGICAL TYPELIB_CALLTYPE  PeekDataQueue    ( PDATAQUEUE *pplq, POINTER ResultBuffer );
-/* <combine sack::containers::data_queue::PeekDataQueue@PDATAQUEUE *@POINTER>
-   \ \                                                                        */
-#define PeekDataQueue( q, type, result ) PeekDataQueue( q, (POINTER)result )
+#define PeekDataQueue( q, type, result ) PeekDataQueueEx( q, type, result, 0 )
+/*
+ * gets the address a PDATAQUEUE element at index
+ * result buffer is a pointer to the type of structure expected to be
+ * stored within this.  Index from 0 to N indexes from first ( to be dequeued )
+ * to last item in queue.
+ */
+TYPELIB_PROC POINTER TYPELIB_CALLTYPE  PeekDataInQueueEx    ( PDATAQUEUE *pplq, INDEX idx );
+/*
+ * Results with the first item in the queue, else NULL.
+ */
+TYPELIB_PROC POINTER TYPELIB_CALLTYPE  PeekDataInQueue    ( PDATAQUEUE *pplq );
 /* <combine sack::containers::data_queue::CreateDataQueueEx@INDEX size>
    \ \                                                                  */
 #define     CreateDataQueue(size)     CreateDataQueueEx( size DBG_SRC )
@@ -2565,8 +2570,7 @@ _SETS_NAMESPACE
    array that maps usage of the set, and for the set size of
    elements.
    Remarks
-   \ \
-   Summary
+   \    Summary
    Generic sets are good for tracking lots of tiny structures.
    They track slabs of X structures at a time. They allocate a
    slab of X structures with an array of X bits indicating
@@ -2633,13 +2637,13 @@ typedef struct genericset_tag {
 	struct genericset_tag **me;
 	/* number of spots in this set block that are used. */
 	uint32_t nUsed;
- // hmm if I change this here? we're hozed... so.. we'll do it anyhow :) evil - recompile please
+    // this is the size of the bit pool before the pointer pool
 	uint32_t nBias;
- // after this p * unit must be computed
+ // the bit pool starts here (booleanUsed) after a number of
 	uint32_t bUsed[1];
+	                   // bits begins the aligned pointer pool.
 } GENERICSET, *PGENERICSET;
-/* \ \
-   Parameters
+/* \    Parameters
    pSet :      pointer to a generic set
    nMember :   index of the member
    setsize :   number of elements in each block
@@ -2650,13 +2654,11 @@ TYPELIB_PROC  POINTER  TYPELIB_CALLTYPE GetFromSetEx( GENERICSET **pSet, int set
    \ \                                                                             */
 #define GetFromSeta(ps, ss, us, max) GetFromSetPoolEx( NULL, 0, 0, 0, (ps), (ss), (us), (max) DBG_SRC )
 /* <combine sack::containers::sets::GetFromSetEx@GENERICSET **@int@int@int maxcnt>
-   \ \
-   Parameters
+   \    Parameters
    name :  name of type the set contains.
    pSet :  pointer to a set to get an element from.                                */
 #define GetFromSet( name, pset ) (name*)GetFromSeta( (GENERICSET**)(pset), sizeof( name##SET ), sizeof( name ), MAX##name##SPERSET )
-/* \ \
-   Parameters
+/* \    Parameters
    pSet :      pointer to a generic set
    nMember :   index of the member
    setsize :   number of elements in each block
@@ -2672,8 +2674,7 @@ TYPELIB_PROC  PGENERICSET  TYPELIB_CALLTYPE GetFromSetPoolEx( GENERICSET **pSetS
 /* <combine sack::containers::sets::GetFromSetPoolEx@GENERICSET **@int@int@int@GENERICSET **@int@int@int maxcnt>
    \ \                                                                                                           */
 #define GetFromSetPool( name, pool, pset ) (name*)GetFromSetPoola( (GENERICSET**)(pool)	    , sizeof( name##SETSET ), sizeof( name##SET ), MAX##name##SETSPERSET	, (GENERICSET**)(pset), sizeof( name##SET ), sizeof( name ), MAX##name##SPERSET )
-/* \ \
-   Parameters
+/* \    Parameters
    pSet :      pointer to a generic set
    nMember :   index of the member
    setsize :   number of elements in each block
@@ -2686,8 +2687,7 @@ TYPELIB_PROC  POINTER  TYPELIB_CALLTYPE GetSetMemberEx( GENERICSET **pSet, INDEX
 /* <combine sack::containers::sets::GetSetMemberEx@GENERICSET **@INDEX@int@int@int maxcnt>
    \ \                                                                                     */
 #define GetSetMember( name, pset, member ) ((name*)GetSetMembera( (GENERICSET**)(pset), (member), sizeof( name##SET ), sizeof( name ), MAX##name##SPERSET ))
-/* \ \
-   Parameters
+/* \    Parameters
    pSet :      pointer to a generic set
    nMember :   index of the member
    setsize :   number of elements in each block
@@ -2714,8 +2714,7 @@ TYPELIB_PROC  INDEX TYPELIB_CALLTYPE  GetMemberIndex(GENERICSET **set, POINTER u
 /* <combine sack::containers::sets::GetMemberIndex>
    \ \                                              */
 #define GetIndexFromSet( name, pset ) GetMemberIndex( name, pset, GetFromSet( name, pset ) )
-/* \ \
-   Parameters
+/* \    Parameters
    pSet :      pointer to a generic set
    nMember :   index of the member
    setsize :   number of elements in each block
@@ -2795,8 +2794,7 @@ TYPELIB_PROC  void TYPELIB_CALLTYPE  DeleteSet( GENERICSET **ppSet );
    ForAllinSet Callback - callback fucntion used with
    ForAllInSet                                        */
 typedef uintptr_t (CPROC *FAISCallback)(void*,uintptr_t);
-/* \ \
-   Parameters
+/* \    Parameters
    pSet :      poiner to a set
    unitsize :  size of elements in the array
    max :       count of elements per set block
@@ -3302,8 +3300,7 @@ TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateEx( size_t nSize DBG_PASS );
    PTEXT text = SegCreate( 10 );
    </code>                                                     */
 #define SegCreate(s) SegCreateEx(s DBG_SRC)
-/* \ \
-   See Also
+/* \    See Also
    <link DBG_PASS>
    <link SegCreateFromText> */
 TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateFromTextEx( CTEXTSTR text DBG_PASS );
@@ -3313,13 +3310,11 @@ TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateFromTextEx( CTEXTSTR text DBG_PAS
    PTEXT line = SegCreateFromText( "Around the world in a day." );
    </code>                                                         */
 #define SegCreateFromText(t) SegCreateFromTextEx(t DBG_SRC)
-/* \ \
-   See Also
+/* \    See Also
    <link DBG_PASS>
    <link SegCreateFromChar> */
 TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateFromCharLenEx( const char *text, size_t len DBG_PASS );
-/* \ \
-   See Also
+/* \    See Also
    <link DBG_PASS>
    <link SegCreateFromChar> */
 TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateFromCharEx( const char *text DBG_PASS );
@@ -3329,18 +3324,15 @@ TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateFromCharEx( const char *text DBG_
    PTEXT line = SegCreateFromChar( "Around the world in a day." );
    </code>                                                         */
 #define SegCreateFromChar(t) SegCreateFromCharEx(t DBG_SRC)
-/* \ \
-   See Also
+/* \    See Also
    <link DBG_PASS>
    <link SegCreateFromChar> */
 #define SegCreateFromCharLen(t,len) SegCreateFromCharLenEx((t),(len) DBG_SRC)
-/* \ \
-   See Also
+/* \    See Also
    <link DBG_PASS>
    <link SegCreateFromWide> */
 TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateFromWideLenEx( const wchar_t *text, size_t len DBG_PASS );
-/* \ \
-   See Also
+/* \    See Also
    <link DBG_PASS>
    <link SegCreateFromWide> */
 TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateFromWideEx( const wchar_t *text DBG_PASS );
@@ -3350,13 +3342,11 @@ TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateFromWideEx( const wchar_t *text D
    PTEXT line = SegCreateFromWideLen( L"Around the world in a day.", 26 );
    </code>                                                         */
 #define SegCreateFromWideLen(t,len) SegCreateFromWideLenEx((t),(len) DBG_SRC)
-/* \ \
-   See Also
+/* \    See Also
    <link DBG_PASS>
    <link SegCreateFromWide> */
 #define SegCreateFromWide(t) SegCreateFromWideEx(t DBG_SRC)
-/* \ \
-   See Also
+/* \    See Also
    <link DBG_PASS>
    <link SegCreateIndirect> */
 TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateIndirectEx( PTEXT pText DBG_PASS );
@@ -3375,8 +3365,7 @@ TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateIndirectEx( PTEXT pText DBG_PASS 
    length buffer for a TEXT segment.
                                                                                   */
 #define SegCreateIndirect(t) SegCreateIndirectEx(t DBG_SRC)
-/* \ \
-   See Also
+/* \    See Also
    <link DBG_PASS>
    <link SegDuplicate> */
 TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegDuplicateEx( PTEXT pText DBG_PASS);
@@ -3394,16 +3383,14 @@ TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  LineDuplicateEx( PTEXT pText DBG_PASS );
 /* <combine sack::containers::text::LineDuplicateEx@PTEXT pText>
    \ \                                                           */
 #define LineDuplicate(pt) LineDuplicateEx(pt DBG_SRC )
-/* \ \
-   See Also
+/* \    See Also
    <link DBG_PASS>
    <link TextDuplicate> */
 TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  TextDuplicateEx( PTEXT pText, int bSingle DBG_PASS );
 /* Duplicate the whole string of text to another string with
    exactly the same content.                                 */
 #define TextDuplicate(pt,s) TextDuplicateEx(pt,s DBG_SRC )
-/* \ \
-   See Also
+/* \    See Also
    <link DBG_PASS>
    <link SegCreateFromInt> */
 TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateFromIntEx( int value DBG_PASS );
@@ -3419,8 +3406,7 @@ TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateFromIntEx( int value DBG_PASS );
 TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateFrom_64Ex( int64_t value DBG_PASS );
 /* Create a text segment from a uint64_t bit value. (long long int) */
 #define SegCreateFrom_64(v) SegCreateFrom_64Ex( v DBG_SRC )
-/* \ \
-   See Also
+/* \    See Also
    <link DBG_PASS>
    <link SegCreateFromFloat> */
 TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateFromFloatEx( float value DBG_PASS );
@@ -3469,7 +3455,7 @@ TYPELIB_PROC  void TYPELIB_CALLTYPE   LineReleaseEx (PTEXT line DBG_PASS );
    Any segment in the line may be passed, the first segment is
    found, and then all segments in the line are deleted.       */
 #define LineRelease(l) LineReleaseEx(l DBG_SRC )
-/* \ \
+/* \
    <b>See Also</b>
    <link DBG_PASS>
    <link SegRelease> */
@@ -3548,15 +3534,13 @@ TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegGrab     (PTEXT segment);
    Returns
    \Returns the '_this' that was substituted.                     */
 TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegSubst    ( PTEXT _this, PTEXT that );
-/* \ \
-   See Also
+/* \    See Also
    <link DBG_PASS>
    <link SegSplit> */
 TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegSplitEx( PTEXT *pLine, INDEX nPos DBG_PASS);
 /* Split a PTEXT segment.
    Example
-   \ \
-   <code lang="c++">
+   \    <code lang="c++">
    PTEXT result = SegSplit( &amp;old_string, 5 );
    </code>
    Returns
@@ -3666,8 +3650,7 @@ TYPELIB_PROC  INDEX TYPELIB_CALLTYPE  LineLengthExx( PTEXT pt, LOGICAL bSingle,P
 /* <combine sack::containers::text::LineLengthExEx@PTEXT@LOGICAL@int@PTEXT>
    \ \                                                                      */
 #define LineLengthExx(pt,single,eol) LineLengthExEx( pt,single,8,eol)
-/* \ \
-   Parameters
+/* \    Parameters
    Text segment :  PTEXT line or segment to get the length of
    single :        boolean, if set then only a single segment is
                    measured, otherwise all segments from this to
@@ -3714,8 +3697,7 @@ TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  BuildLineExx( PTEXT pt, LOGICAL bSingle, P
    \ \                                                                          */
 #define BuildLineEx(from,single) BuildLineExEx( from,single,8,NULL DBG_SRC )
 /* <combine sack::containers::text::BuildLineExEx@PTEXT@LOGICAL@int@PTEXT pEOL>
-   \ \
-    Flattens all segments in a line to a single segment result.
+   \     Flattens all segments in a line to a single segment result.
 */
 #define BuildLine(from) BuildLineExEx( from, FALSE,8,NULL DBG_SRC )
 //
@@ -3898,8 +3880,7 @@ TYPELIB_PROC  void TYPELIB_CALLTYPE  VarTextEmptyEx( PVARTEXT pvt DBG_PASS);
 #define VarTextEmpty(pvt) VarTextEmptyEx( (pvt) DBG_SRC )
 /* Add a single character to a vartext collector.
    Note
-   \ \
-   Parameters
+   \    Parameters
    pvt :       PVARTEXT to add character to
    c :         character to add
    DBG_PASS :  optional debug information         */
@@ -4223,8 +4204,7 @@ TYPELIB_PROC  PTREEROOT TYPELIB_CALLTYPE  CreateBinaryTreeExtended( uint32_t fla
    PTREEROOT tree = CreateBinaryTree();
    </code>                                                      */
 #define CreateBinaryTree() CreateBinaryTreeEx( NULL, NULL )
-/* \ \
-   Example
+/* \    Example
    <code lang="c++">
    PTREEROOT tree = CreateBinaryTree();
    DestroyBinaryTree( tree );
@@ -4232,8 +4212,7 @@ TYPELIB_PROC  PTREEROOT TYPELIB_CALLTYPE  CreateBinaryTreeExtended( uint32_t fla
    </code>                              */
 TYPELIB_PROC  void TYPELIB_CALLTYPE  DestroyBinaryTree( PTREEROOT root );
 /* Drops all the nodes in a tree so it becomes empty...
-   \ \
-   Example
+   \    Example
    <code lang="c++">
    PTREEROOT tree = CreateBinaryTree();
    ResetBinaryTree( tree );
@@ -4252,8 +4231,7 @@ TYPELIB_PROC  void TYPELIB_CALLTYPE  ResetBinaryTree( PTREEROOT root );
    BalanceBinaryTree( tree );
    </code>                                                        */
 TYPELIB_PROC  void TYPELIB_CALLTYPE  BalanceBinaryTree( PTREEROOT root );
-/* \ \
-   See Also
+/* \    See Also
    <link AddBinaryNode>
    <link DBG_PASS>
                         */
@@ -4396,8 +4374,7 @@ TYPELIB_PROC  CPOINTER TYPELIB_CALLTYPE  GetParentNode( PTREEROOT root );
    Binary Trees have a 'current' cursor. These operations may be
    used to browse the tree.
    Example
-   \ \
-   <code>
+   \    <code>
    // this assumes you have a tree, and it's fairly populated, then this demonstrates
    // all steps of browsing.
    POINTER my_data;
@@ -7033,6 +7010,9 @@ namespace sack {
 #  undef _XOPEN_SOURCE
 #  define _XOPEN_SOURCE 500
 #endif
+#  ifndef _GNU_SOURCE
+#    define _GNU_SOURCE
+#  endif
 #ifndef STANDARD_HEADERS_INCLUDED
 /* multiple inclusion protection symbol */
 #define STANDARD_HEADERS_INCLUDED
@@ -7162,18 +7142,18 @@ namespace sack {
 #    define stricmp _stricmp
 #    define strdup _strdup
 #  endif
-#ifdef WANT_MMSYSTEM
-#  include <mmsystem.h>
-#endif
-#if USE_NATIVE_TIME_GET_TIME
+#  ifdef WANT_MMSYSTEM
+#    include <mmsystem.h>
+#  endif
+#  if USE_NATIVE_TIME_GET_TIME
 //#  include <windowsx.h>
 // we like timeGetTime() instead of GetTickCount()
 //#  include <mmsystem.h>
-#ifdef __cplusplus
+#    ifdef __cplusplus
 extern "C"
-#endif
+#    endif
 __declspec(dllimport) DWORD WINAPI timeGetTime(void);
-#endif
+#  endif
 #  ifdef WIN32
 #    if defined( NEED_SHLAPI )
 #      include <shlwapi.h>
@@ -7204,9 +7184,6 @@ __declspec(dllimport) DWORD WINAPI timeGetTime(void);
 #  endif
  // ifdef unix/linux
 #else
-#  ifndef _GNU_SOURCE
-#    define _GNU_SOURCE
-#  endif
 #  include <pthread.h>
 #  include <sched.h>
 #  include <unistd.h>
@@ -7316,7 +7293,7 @@ But WHO doesn't have stdint?  BTW is sizeof( size_t ) == sizeof( void* )
 #    define DeclareThreadLocal static __declspec(thread)
 #    define DeclareThreadVar __declspec(thread)
 #  endif
-#elif !defined( __NO_THREAD_LOCAL__ ) && ( defined( __GNUC__ ) )
+#elif !defined( __NO_THREAD_LOCAL__ ) && ( defined( __GNUC__ ) || defined( __MAC__ ) )
 #    define HAS_TLS 1
 #    ifdef __cplusplus
 #      define DeclareThreadLocal static thread_local
@@ -8384,10 +8361,8 @@ typedef uint64_t THREAD_ID;
 // this is now always the case
 // it's a safer solution anyhow...
 #  ifdef __MAC__
-#    ifndef SYS_thread_selfid
-#      define SYS_thread_selfid                 372
-#    endif
-#    define GetMyThreadID()  (( ((uint64_t)getpid()) << 32 ) | ( (uint64_t)( syscall(SYS_thread_selfid) ) ) )
+     DeclareThreadLocal uint64_t tmpThreadid;
+#    define GetMyThreadID()  ((pthread_threadid_np(NULL, &tmpThreadid)),tmpThreadid)
 #  else
 #    ifndef GETPID_RETURNS_PPID
 #      define GETPID_RETURNS_PPID
@@ -9028,8 +9003,7 @@ TYPELIB_PROC  POINTER TYPELIB_CALLTYPE    SetDataItemEx ( PDATALIST *ppdl, INDEX
 TYPELIB_PROC  POINTER TYPELIB_CALLTYPE    SetDataItemEx ( PDATALIST *ppdl, INDEX idx, POINTER data DBG_PASS );
 /* \Returns a pointer to the data at a specified index.
    Parameters
-   \ \
-   ppdl :  address of a PDATALIST
+   \    ppdl :  address of a PDATALIST
    idx :   index of element to get                      */
 TYPELIB_PROC  POINTER TYPELIB_CALLTYPE    GetDataItem ( PDATALIST *ppdl, INDEX idx );
 /* Removes a data element from the list (moves all other
@@ -9346,17 +9320,24 @@ TYPELIB_PROC  void TYPELIB_CALLTYPE         EmptyDataQueue ( PDATAQUEUE *pplq );
  * reallocated and moved.
  */
 TYPELIB_PROC  LOGICAL TYPELIB_CALLTYPE  PeekDataQueueEx    ( PDATAQUEUE *pplq, POINTER ResultBuffer, INDEX idx );
-/* <combine sack::containers::data_queue::PeekDataQueueEx@PDATAQUEUE *@POINTER@INDEX>
-   \ \                                                                                */
 #define PeekDataQueueEx( q, type, result, idx ) PeekDataQueueEx( q, (POINTER)result, idx )
 /*
  * Result buffer is filled with the last element, and the result is true, otherwise the return
  * value is FALSE, and the data was not filled in.
  */
 TYPELIB_PROC  LOGICAL TYPELIB_CALLTYPE  PeekDataQueue    ( PDATAQUEUE *pplq, POINTER ResultBuffer );
-/* <combine sack::containers::data_queue::PeekDataQueue@PDATAQUEUE *@POINTER>
-   \ \                                                                        */
-#define PeekDataQueue( q, type, result ) PeekDataQueue( q, (POINTER)result )
+#define PeekDataQueue( q, type, result ) PeekDataQueueEx( q, type, result, 0 )
+/*
+ * gets the address a PDATAQUEUE element at index
+ * result buffer is a pointer to the type of structure expected to be
+ * stored within this.  Index from 0 to N indexes from first ( to be dequeued )
+ * to last item in queue.
+ */
+TYPELIB_PROC POINTER TYPELIB_CALLTYPE  PeekDataInQueueEx    ( PDATAQUEUE *pplq, INDEX idx );
+/*
+ * Results with the first item in the queue, else NULL.
+ */
+TYPELIB_PROC POINTER TYPELIB_CALLTYPE  PeekDataInQueue    ( PDATAQUEUE *pplq );
 /* <combine sack::containers::data_queue::CreateDataQueueEx@INDEX size>
    \ \                                                                  */
 #define     CreateDataQueue(size)     CreateDataQueueEx( size DBG_SRC )
@@ -9562,8 +9543,7 @@ _SETS_NAMESPACE
    array that maps usage of the set, and for the set size of
    elements.
    Remarks
-   \ \
-   Summary
+   \    Summary
    Generic sets are good for tracking lots of tiny structures.
    They track slabs of X structures at a time. They allocate a
    slab of X structures with an array of X bits indicating
@@ -9630,13 +9610,13 @@ typedef struct genericset_tag {
 	struct genericset_tag **me;
 	/* number of spots in this set block that are used. */
 	uint32_t nUsed;
- // hmm if I change this here? we're hozed... so.. we'll do it anyhow :) evil - recompile please
+    // this is the size of the bit pool before the pointer pool
 	uint32_t nBias;
- // after this p * unit must be computed
+ // the bit pool starts here (booleanUsed) after a number of
 	uint32_t bUsed[1];
+	                   // bits begins the aligned pointer pool.
 } GENERICSET, *PGENERICSET;
-/* \ \
-   Parameters
+/* \    Parameters
    pSet :      pointer to a generic set
    nMember :   index of the member
    setsize :   number of elements in each block
@@ -9647,13 +9627,11 @@ TYPELIB_PROC  POINTER  TYPELIB_CALLTYPE GetFromSetEx( GENERICSET **pSet, int set
    \ \                                                                             */
 #define GetFromSeta(ps, ss, us, max) GetFromSetPoolEx( NULL, 0, 0, 0, (ps), (ss), (us), (max) DBG_SRC )
 /* <combine sack::containers::sets::GetFromSetEx@GENERICSET **@int@int@int maxcnt>
-   \ \
-   Parameters
+   \    Parameters
    name :  name of type the set contains.
    pSet :  pointer to a set to get an element from.                                */
 #define GetFromSet( name, pset ) (name*)GetFromSeta( (GENERICSET**)(pset), sizeof( name##SET ), sizeof( name ), MAX##name##SPERSET )
-/* \ \
-   Parameters
+/* \    Parameters
    pSet :      pointer to a generic set
    nMember :   index of the member
    setsize :   number of elements in each block
@@ -9669,8 +9647,7 @@ TYPELIB_PROC  PGENERICSET  TYPELIB_CALLTYPE GetFromSetPoolEx( GENERICSET **pSetS
 /* <combine sack::containers::sets::GetFromSetPoolEx@GENERICSET **@int@int@int@GENERICSET **@int@int@int maxcnt>
    \ \                                                                                                           */
 #define GetFromSetPool( name, pool, pset ) (name*)GetFromSetPoola( (GENERICSET**)(pool)	    , sizeof( name##SETSET ), sizeof( name##SET ), MAX##name##SETSPERSET	, (GENERICSET**)(pset), sizeof( name##SET ), sizeof( name ), MAX##name##SPERSET )
-/* \ \
-   Parameters
+/* \    Parameters
    pSet :      pointer to a generic set
    nMember :   index of the member
    setsize :   number of elements in each block
@@ -9683,8 +9660,7 @@ TYPELIB_PROC  POINTER  TYPELIB_CALLTYPE GetSetMemberEx( GENERICSET **pSet, INDEX
 /* <combine sack::containers::sets::GetSetMemberEx@GENERICSET **@INDEX@int@int@int maxcnt>
    \ \                                                                                     */
 #define GetSetMember( name, pset, member ) ((name*)GetSetMembera( (GENERICSET**)(pset), (member), sizeof( name##SET ), sizeof( name ), MAX##name##SPERSET ))
-/* \ \
-   Parameters
+/* \    Parameters
    pSet :      pointer to a generic set
    nMember :   index of the member
    setsize :   number of elements in each block
@@ -9711,8 +9687,7 @@ TYPELIB_PROC  INDEX TYPELIB_CALLTYPE  GetMemberIndex(GENERICSET **set, POINTER u
 /* <combine sack::containers::sets::GetMemberIndex>
    \ \                                              */
 #define GetIndexFromSet( name, pset ) GetMemberIndex( name, pset, GetFromSet( name, pset ) )
-/* \ \
-   Parameters
+/* \    Parameters
    pSet :      pointer to a generic set
    nMember :   index of the member
    setsize :   number of elements in each block
@@ -9792,8 +9767,7 @@ TYPELIB_PROC  void TYPELIB_CALLTYPE  DeleteSet( GENERICSET **ppSet );
    ForAllinSet Callback - callback fucntion used with
    ForAllInSet                                        */
 typedef uintptr_t (CPROC *FAISCallback)(void*,uintptr_t);
-/* \ \
-   Parameters
+/* \    Parameters
    pSet :      poiner to a set
    unitsize :  size of elements in the array
    max :       count of elements per set block
@@ -10299,8 +10273,7 @@ TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateEx( size_t nSize DBG_PASS );
    PTEXT text = SegCreate( 10 );
    </code>                                                     */
 #define SegCreate(s) SegCreateEx(s DBG_SRC)
-/* \ \
-   See Also
+/* \    See Also
    <link DBG_PASS>
    <link SegCreateFromText> */
 TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateFromTextEx( CTEXTSTR text DBG_PASS );
@@ -10310,13 +10283,11 @@ TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateFromTextEx( CTEXTSTR text DBG_PAS
    PTEXT line = SegCreateFromText( "Around the world in a day." );
    </code>                                                         */
 #define SegCreateFromText(t) SegCreateFromTextEx(t DBG_SRC)
-/* \ \
-   See Also
+/* \    See Also
    <link DBG_PASS>
    <link SegCreateFromChar> */
 TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateFromCharLenEx( const char *text, size_t len DBG_PASS );
-/* \ \
-   See Also
+/* \    See Also
    <link DBG_PASS>
    <link SegCreateFromChar> */
 TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateFromCharEx( const char *text DBG_PASS );
@@ -10326,18 +10297,15 @@ TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateFromCharEx( const char *text DBG_
    PTEXT line = SegCreateFromChar( "Around the world in a day." );
    </code>                                                         */
 #define SegCreateFromChar(t) SegCreateFromCharEx(t DBG_SRC)
-/* \ \
-   See Also
+/* \    See Also
    <link DBG_PASS>
    <link SegCreateFromChar> */
 #define SegCreateFromCharLen(t,len) SegCreateFromCharLenEx((t),(len) DBG_SRC)
-/* \ \
-   See Also
+/* \    See Also
    <link DBG_PASS>
    <link SegCreateFromWide> */
 TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateFromWideLenEx( const wchar_t *text, size_t len DBG_PASS );
-/* \ \
-   See Also
+/* \    See Also
    <link DBG_PASS>
    <link SegCreateFromWide> */
 TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateFromWideEx( const wchar_t *text DBG_PASS );
@@ -10347,13 +10315,11 @@ TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateFromWideEx( const wchar_t *text D
    PTEXT line = SegCreateFromWideLen( L"Around the world in a day.", 26 );
    </code>                                                         */
 #define SegCreateFromWideLen(t,len) SegCreateFromWideLenEx((t),(len) DBG_SRC)
-/* \ \
-   See Also
+/* \    See Also
    <link DBG_PASS>
    <link SegCreateFromWide> */
 #define SegCreateFromWide(t) SegCreateFromWideEx(t DBG_SRC)
-/* \ \
-   See Also
+/* \    See Also
    <link DBG_PASS>
    <link SegCreateIndirect> */
 TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateIndirectEx( PTEXT pText DBG_PASS );
@@ -10372,8 +10338,7 @@ TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateIndirectEx( PTEXT pText DBG_PASS 
    length buffer for a TEXT segment.
                                                                                   */
 #define SegCreateIndirect(t) SegCreateIndirectEx(t DBG_SRC)
-/* \ \
-   See Also
+/* \    See Also
    <link DBG_PASS>
    <link SegDuplicate> */
 TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegDuplicateEx( PTEXT pText DBG_PASS);
@@ -10391,16 +10356,14 @@ TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  LineDuplicateEx( PTEXT pText DBG_PASS );
 /* <combine sack::containers::text::LineDuplicateEx@PTEXT pText>
    \ \                                                           */
 #define LineDuplicate(pt) LineDuplicateEx(pt DBG_SRC )
-/* \ \
-   See Also
+/* \    See Also
    <link DBG_PASS>
    <link TextDuplicate> */
 TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  TextDuplicateEx( PTEXT pText, int bSingle DBG_PASS );
 /* Duplicate the whole string of text to another string with
    exactly the same content.                                 */
 #define TextDuplicate(pt,s) TextDuplicateEx(pt,s DBG_SRC )
-/* \ \
-   See Also
+/* \    See Also
    <link DBG_PASS>
    <link SegCreateFromInt> */
 TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateFromIntEx( int value DBG_PASS );
@@ -10416,8 +10379,7 @@ TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateFromIntEx( int value DBG_PASS );
 TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateFrom_64Ex( int64_t value DBG_PASS );
 /* Create a text segment from a uint64_t bit value. (long long int) */
 #define SegCreateFrom_64(v) SegCreateFrom_64Ex( v DBG_SRC )
-/* \ \
-   See Also
+/* \    See Also
    <link DBG_PASS>
    <link SegCreateFromFloat> */
 TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateFromFloatEx( float value DBG_PASS );
@@ -10466,7 +10428,7 @@ TYPELIB_PROC  void TYPELIB_CALLTYPE   LineReleaseEx (PTEXT line DBG_PASS );
    Any segment in the line may be passed, the first segment is
    found, and then all segments in the line are deleted.       */
 #define LineRelease(l) LineReleaseEx(l DBG_SRC )
-/* \ \
+/* \
    <b>See Also</b>
    <link DBG_PASS>
    <link SegRelease> */
@@ -10545,15 +10507,13 @@ TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegGrab     (PTEXT segment);
    Returns
    \Returns the '_this' that was substituted.                     */
 TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegSubst    ( PTEXT _this, PTEXT that );
-/* \ \
-   See Also
+/* \    See Also
    <link DBG_PASS>
    <link SegSplit> */
 TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegSplitEx( PTEXT *pLine, INDEX nPos DBG_PASS);
 /* Split a PTEXT segment.
    Example
-   \ \
-   <code lang="c++">
+   \    <code lang="c++">
    PTEXT result = SegSplit( &amp;old_string, 5 );
    </code>
    Returns
@@ -10663,8 +10623,7 @@ TYPELIB_PROC  INDEX TYPELIB_CALLTYPE  LineLengthExx( PTEXT pt, LOGICAL bSingle,P
 /* <combine sack::containers::text::LineLengthExEx@PTEXT@LOGICAL@int@PTEXT>
    \ \                                                                      */
 #define LineLengthExx(pt,single,eol) LineLengthExEx( pt,single,8,eol)
-/* \ \
-   Parameters
+/* \    Parameters
    Text segment :  PTEXT line or segment to get the length of
    single :        boolean, if set then only a single segment is
                    measured, otherwise all segments from this to
@@ -10711,8 +10670,7 @@ TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  BuildLineExx( PTEXT pt, LOGICAL bSingle, P
    \ \                                                                          */
 #define BuildLineEx(from,single) BuildLineExEx( from,single,8,NULL DBG_SRC )
 /* <combine sack::containers::text::BuildLineExEx@PTEXT@LOGICAL@int@PTEXT pEOL>
-   \ \
-    Flattens all segments in a line to a single segment result.
+   \     Flattens all segments in a line to a single segment result.
 */
 #define BuildLine(from) BuildLineExEx( from, FALSE,8,NULL DBG_SRC )
 //
@@ -10895,8 +10853,7 @@ TYPELIB_PROC  void TYPELIB_CALLTYPE  VarTextEmptyEx( PVARTEXT pvt DBG_PASS);
 #define VarTextEmpty(pvt) VarTextEmptyEx( (pvt) DBG_SRC )
 /* Add a single character to a vartext collector.
    Note
-   \ \
-   Parameters
+   \    Parameters
    pvt :       PVARTEXT to add character to
    c :         character to add
    DBG_PASS :  optional debug information         */
@@ -11220,8 +11177,7 @@ TYPELIB_PROC  PTREEROOT TYPELIB_CALLTYPE  CreateBinaryTreeExtended( uint32_t fla
    PTREEROOT tree = CreateBinaryTree();
    </code>                                                      */
 #define CreateBinaryTree() CreateBinaryTreeEx( NULL, NULL )
-/* \ \
-   Example
+/* \    Example
    <code lang="c++">
    PTREEROOT tree = CreateBinaryTree();
    DestroyBinaryTree( tree );
@@ -11229,8 +11185,7 @@ TYPELIB_PROC  PTREEROOT TYPELIB_CALLTYPE  CreateBinaryTreeExtended( uint32_t fla
    </code>                              */
 TYPELIB_PROC  void TYPELIB_CALLTYPE  DestroyBinaryTree( PTREEROOT root );
 /* Drops all the nodes in a tree so it becomes empty...
-   \ \
-   Example
+   \    Example
    <code lang="c++">
    PTREEROOT tree = CreateBinaryTree();
    ResetBinaryTree( tree );
@@ -11249,8 +11204,7 @@ TYPELIB_PROC  void TYPELIB_CALLTYPE  ResetBinaryTree( PTREEROOT root );
    BalanceBinaryTree( tree );
    </code>                                                        */
 TYPELIB_PROC  void TYPELIB_CALLTYPE  BalanceBinaryTree( PTREEROOT root );
-/* \ \
-   See Also
+/* \    See Also
    <link AddBinaryNode>
    <link DBG_PASS>
                         */
@@ -11393,8 +11347,7 @@ TYPELIB_PROC  CPOINTER TYPELIB_CALLTYPE  GetParentNode( PTREEROOT root );
    Binary Trees have a 'current' cursor. These operations may be
    used to browse the tree.
    Example
-   \ \
-   <code>
+   \    <code>
    // this assumes you have a tree, and it's fairly populated, then this demonstrates
    // all steps of browsing.
    POINTER my_data;
@@ -16495,6 +16448,43 @@ PDATAQUEUE  CreateLargeDataQueueEx( INDEX size, INDEX entries, INDEX expand DBG_
  LOGICAL  PeekDataQueue ( PDATAQUEUE *ppdq, POINTER result )
 {
 	return PeekDataQueueEx( ppdq, result, 0 );
+}
+// zero is the first,
+POINTER  PeekDataInQueueEx ( PDATAQUEUE *ppdq, INDEX idx )
+{
+	INDEX top;
+	if( ppdq && *ppdq )
+		while( LockedExchange( data_queue_local_lock, 1 ) )
+			Relinquish();
+	else
+		return 0;
+	// cannot get invalid id.
+	if( idx != INVALID_INDEX )
+	{
+		for( top = (*ppdq)->Bottom;
+			 idx != INVALID_INDEX && top != (*ppdq)->Top
+			 ; )
+		{
+			idx--;
+			if( idx != INVALID_INDEX )
+			{
+				top++;
+				if( (top) >= (*ppdq)->Cnt )
+					top = top-(*ppdq)->Cnt;
+			}
+		}
+		if( idx == INVALID_INDEX )
+		{
+			data_queue_local_lock[0] = 0;
+			return (*ppdq)->data + top * (*ppdq)->Size;
+		}
+	}
+	data_queue_local_lock[0] = 0;
+	return NULL;
+}
+POINTER  PeekDataInQueue ( PDATAQUEUE *ppdq )
+{
+	return PeekDataInQueueEx( ppdq, 0 );
 }
 void  EmptyDataQueue ( PDATAQUEUE *ppdq )
 {
@@ -34126,7 +34116,7 @@ Double quote	"""	222
      */
 #  endif
 // if any key...
-#if !defined( KEY_1 )
+#if 1 || !defined( KEY_1 )
 #  if defined( __ANDROID__ )
 #    include <android/keycodes.h>
 #    define KEY_SHIFT        AKEYCODE_SHIFT_LEFT
@@ -34295,15 +34285,64 @@ Double quote	"""	222
 #    define KEY_X   AKEYCODE_X
 #    define KEY_Y   AKEYCODE_Y
 #    define KEY_Z   AKEYCODE_Z
-#  elif defined( __LINUX__ )
+#  elif defined( __LINUX__ ) && !defined( __MAC__ ) && !defined( __ANDROID__ )
+#include <linux/input-event-codes.h>
+#undef BTN_START
+#define KEY_ESCAPE KEY_ESC
+#define KEY_PGDN KEY_PAGEDOWN
+#define KEY_PAGE_DOWN  KEY_PAGEDOWN
+#define KEY_PGUP KEY_PAGEUP
+#define KEY_PAGE_UP  KEY_PAGEUP
+#define KEY_DASH KEY_MINUS
+#define KEY_QUOTE KEY_APOSTROPHE
+#define KEY_PAD_PLUS KEY_KPPLUS
+#define KEY_PAD_ENTER KEY_KPENTER
+#define KEY_PAD_MINUS KEY_KPMINUS
+#define KEY_PAD_DOT   KEY_KPDOT
+#define KEY_PAD_DIV   KEY_KPSLASH
+//#define KEY_DASH
+#define KEY_LEFT_BRACKET KEY_LEFTBRACE
+#define KEY_RIGHT_BRACKET KEY_RIGHTBRACE
+#define KEY_PAD_MULT  KEY_KPASTERISK
+#define KEY_PAD_9   KEY_KP9
+#define KEY_PAD_8   KEY_KP8
+#define KEY_PAD_7   KEY_KP7
+#define KEY_PAD_6   KEY_KP6
+#define KEY_PAD_5   KEY_KP5
+#define KEY_PAD_4   KEY_KP4
+#define KEY_PAD_3   KEY_KP3
+#define KEY_PAD_2   KEY_KP2
+#define KEY_PAD_1   KEY_KP1
+#define KEY_PAD_0   KEY_KP0
+#define KEY_CENTER  KEY_KPPLUSMINUS
+#define KEY_LESS   KEY_COMMA
+#define KEY_PAD_DELETE KEY_KPDOT
+#define KEY_GREY_INSERT KEY_INSERT
+#define KEY_GREY_DELETE KEY_DELETE
+#define KEY_PERIOD KEY_DOT
+#define KEY_CAPS_LOCK KEY_CAPSLOCK
+#define KEY_LEFT_SHIFT KEY_LEFTSHIFT
+#define KEY_RIGHT_SHIFT KEY_RIGHTSHIFT
+#define KEY_ALT KEY_LEFTALT
+#define KEY_LEFT_ALT KEY_LEFTALT
+#define KEY_RIGHT_ALT KEY_RIGHTALT
+#define KEY_CTRL KEY_LEFTCTRL
+#define KEY_LEFT_CONTROL KEY_LEFTCTRL
+#define KEY_RIGHT_CONTROL KEY_RIGHTCTRL
+#define KEY_SCROLL_LOCK KEY_SCROLLLOCK
+#define KEY_SHIFT KEY_LEFTSHIFT
+#define KEY_DEL KEY_BACKSPACE
+//#define
+#define KEY_ACCENT KEY_GRAVE
 	  //#define USE_SDL_KEYSYM
 // ug - KEYSYMS are too wide...
 // so - we fall back to x scancode tables - and translate sym to these
 // since the scancodes which come from X are not the same as from console Raw
 // but - perhaps we should re-translate these to REAL scancodes... but in either
 // case - these fall to under 256 characters, and can therefore be used...
-#    define USE_X_RAW_SCANCODES
+//#    define USE_X_RAW_SCANCODES
 #    ifdef USE_X_RAW_SCANCODES
+//#pragma message( "XRAW")
 #      define KEY_SHIFT        0xFF
 #      define KEY_LEFT_SHIFT   50
  // maybe?
@@ -34388,6 +34427,7 @@ Double quote	"""	222
 #      define KEY_WINDOW_1      115
  // windows keys keys
 #      define KEY_WINDOW_2      117
+//#pragma message("GOOD DEFINE")
 #      define KEY_TAB           23
 #      define KEY_SLASH         61
 #      define KEY_BACKSPACE     22
@@ -34793,6 +34833,7 @@ Double quote	"""	222
 #      define KEY_MINUS     0x0C
 #      define KEY_PLUS         0x0D
 #      define  KEY_BKSP        0x0E
+#pragma error BAD DEFINE
 #      define KEY_TAB       0x0F
 #      define KEY_Q         0x10
 #      define KEY_W         0x11
@@ -38288,6 +38329,13 @@ enum ButtonFlags {
 // please do validate that the code gives them to you all the way
 // from the initial mouse message through all layers to the final
 // application handler.
+enum sizeDisplayValues {
+	wrsdv_one  = 0,
+	wrsdv_top = 1,
+	wrsdv_bottom = 2,
+	wrsdv_left = 4,
+	wrsdv_right = 8,
+};
 //----------------------------------------------------------
 enum DisplayAttributes {
    /* when used by the Display Lib manager, this describes how to manage the subsurface */
@@ -38354,8 +38402,7 @@ enum DisplayAttributes {
        See Also
        <link sack::image::render::GetDisplaySizeEx@int@int32_t *@int32_t *@uint32_t *@uint32_t *, GetDisplaySizeEx> */
     RENDER_PROC( void , GetDisplaySize)      ( uint32_t *width, uint32_t *height );
-	 /* \ \
-	    Parameters
+	 /* \	     Parameters
 	    nDisplay :  display to get the coordinates of. 0 is the
 	                default display from GetDesktopWindow(). 1\-n are
 	                displays for multiple display systems, 1,2,3,4
@@ -38695,8 +38742,7 @@ enum DisplayAttributes {
        display :  display to check the key state in
        key :      KEY_ symbol to check.                    */
     RENDER_PROC( uint32_t, IsKeyDown )              ( PRENDERER display, int key );
-    /* \ \
-       Parameters
+    /* \        Parameters
        display :  display to test the key status in
        key :      KEY_ symbol to check if the key is pressed
        Returns
@@ -39270,6 +39316,12 @@ struct render_interface_tag
 	RENDER_PROC_PTR( void, ReplyCloseDisplay )( void );
 		/* Clipboard Callback */
 	RENDER_PROC_PTR( void, SetClipboardEventCallback )(PRENDERER pRenderer, ClipboardCallback callback, uintptr_t psv);
+	// where ever the current mouse is, lock the mouse to the window, and allow the mouse to move it.
+	//
+	RENDER_PROC_PTR( void, BeginMoveDisplay )(PRENDERER pRenderer );
+	// where ever the current mouse is, lock the mouse to the window, and allow the mouse to move it.
+	//
+	RENDER_PROC_PTR( void, BeginSizeDisplay )(PRENDERER pRenderer, enum sizeDisplayValues sizeFrom );
 };
 #ifdef DEFINE_DEFAULT_RENDER_INTERFACE
 #define USE_RENDER_INTERFACE GetDisplayInterface()
@@ -39388,6 +39440,8 @@ typedef int check_this_variable;
 #define RenderIsInstanced()       ((USE_RENDER_INTERFACE)?((USE_RENDER_INTERFACE)->_RenderIsInstanced)?(USE_RENDER_INTERFACE)->_RenderIsInstanced():0:0)
 #define SetDisplayCursor(n)           {if((USE_RENDER_INTERFACE)&&(USE_RENDER_INTERFACE)->_SetDisplayCursor)REND_PROC_ALIAS(SetDisplayCursor)(n);}
 #define IsDisplayRedrawForced(r)    ((USE_RENDER_INTERFACE)?((USE_RENDER_INTERFACE)->_IsDisplayRedrawForced)?(USE_RENDER_INTERFACE)->_IsDisplayRedrawForced(r):0:0)
+#define BeginMoveDisplay(r)   ((USE_RENDER_INTERFACE)?((USE_RENDER_INTERFACE)->_BeginMoveDisplay)?((USE_RENDER_INTERFACE)->_BeginMoveDisplay(r),1):0:0)
+#define BeginSizeDisplay(r,m)   ((USE_RENDER_INTERFACE)?((USE_RENDER_INTERFACE)->_BeginSizeDisplay)?((USE_RENDER_INTERFACE)->_BeginSizeDisplay(r,m),1):0:0)
 #endif
 	_INTERFACE_NAMESPACE_END
 #ifdef __cplusplus
@@ -42198,8 +42252,8 @@ IDLE_PROC( int, Idle )( void )
 }
 IDLE_PROC( int, IdleForEx )( uint32_t dwMilliseconds DBG_PASS )
 {
-	uint32_t dwStart = timeGetTime();
-	while( ( dwStart + dwMilliseconds ) > timeGetTime() )
+	//uint32_t dwStart = timeGetTime();
+	//while( ( dwStart + dwMilliseconds ) > timeGetTime() )
 	{
 		if( !IdleEx( DBG_VOIDRELAY ) )
 		{
@@ -44993,6 +45047,11 @@ static	int CPROC sack_filesys_find_first( struct find_cursor* _cursor ) {
 	if( cursor->handle ) {
 		do {
 			cursor->de = readdir( cursor->handle );
+			//lprintf( "filefound? %s", cursor->de->d_name );
+			if( cursor->de && cursor->de->d_type == DT_DIR) {
+				//lprintf( "result with dir? %s", cursor->de->d_name );
+					break;
+			}
 		} while( cursor->de && !CompareMask( cursor->mask, cursor->de->d_name, 0 ) );
 		return ( cursor->de != NULL );
 	}
@@ -45021,6 +45080,11 @@ static	int CPROC sack_filesys_find_next( struct find_cursor* _cursor ) {
 #else
 	do {
 		cursor->de = readdir( cursor->handle );
+			//lprintf( "filefound? %s", cursor->de->d_name );
+			if( cursor->de && cursor->de->d_type == DT_DIR) {
+				//lprintf( "result with dir? %s", cursor->de->d_name );
+				break;
+			}
 	} while( cursor->de && !CompareMask( cursor->mask, cursor->de->d_name, 0 ) );
 	r = ( cursor->de != NULL );
 #endif
@@ -45473,7 +45537,7 @@ try_mask:
 	{
 		if( mask[m] == '\t' || mask[m] == '|' )
 		{
-			lprintf( "Found mask seperator - skipping to next mask :%s", mask + m + 1 );
+			//lprintf( "Found mask seperator - skipping to next mask :%s", mask + m + 1 );
 			n = 0;
 			m++;
 			continue;
@@ -46929,7 +46993,7 @@ void ConvertTickToTime( int64_t tick, PSACK_TIME st ) {
 	struct tm tm;
 	tv.tv_sec = ( tick >> 8 ) / 1000;
 	tv.tv_usec =  ( ( tick >> 8 ) % 1000 ) * 1000;
-	gmtime_r( &tv.tv_sec, &tm );
+	localtime_r( &tv.tv_sec, &tm );
 	st->yr = tm.tm_year + 1900;
 	st->mo = tm.tm_mon+1;
 	st->dy = tm.tm_mday;
@@ -46952,6 +47016,7 @@ int64_t GetTimeOfDay( uint64_t* tick, int8_t* ptz )
  // -840/15 = -56  720/15 = 48
 		tz = (((tz / 100) * 60) + (tz % 100)) / 15;
 	tick[0] = timeGetTime64ns();
+	tick[0] += (int64_t)tz * 900 * (int64_t)1000000000;
 	ptz[0] = tz;
 	return ( tick[0] /1000000 )<<8 | (tz&0xFF);
 #ifdef _WIN32
@@ -56727,6 +56792,7 @@ void ReadConfiguration( void )
 		AddConfigurationMethod( pch, "endif", EndTestOption );
 		AddConfigurationMethod( pch, "else", ElseTestOption );
 		AddConfigurationMethod( pch, "service=%w library=%w load=%w unload=%w", HandleLibrary );
+		AddConfigurationMethod( pch, "alias service '%m' = '%m'", HandleAlias );
 		AddConfigurationMethod( pch, "alias service %w %w", HandleAlias );
 		AddConfigurationMethod( pch, "module %w", HandleModule );
 		AddConfigurationMethod( pch, "pmodule %w", HandlePrivateModule );
@@ -57278,8 +57344,10 @@ SRG_EXPORT char * SRG_ID_Generator( void );
 SRG_EXPORT char *SRG_ID_Generator_256( void );
 // return a unique ID using SHA3-keccak-512
 SRG_EXPORT char *SRG_ID_Generator3( void );
-// return a unique ID using SHA3-K12-512
+// return a unique ID using K12-32768
 SRG_EXPORT char *SRG_ID_Generator4( void );
+// return a short unique ID using K12-32768
+SRG_EXPORT char *SRG_ID_ShortGenerator4( void );
 //------------------------------------------------------------------------
 //   crypt_util.c extra simple routines - kinda like 'passwd'
 //
@@ -57441,73 +57509,73 @@ struct sack_vfs_find_info;
 // if the volume does exist, a quick validity check is made on it, and then the result is opened
 // returns NULL if failure.  (permission denied to the file, or invalid filename passed, could be out of space... )
 // same as load_cyrypt_volume with userkey and devkey NULL.
-SACK_VFS_PROC struct sack_vfs_volume * CPROC sack_vfs_load_volume( CTEXTSTR filepath );
+SACK_VFS_PROC struct sack_vfs_volume * sack_vfs_load_volume( CTEXTSTR filepath );
 // open a volume at the specified pathname.  Use the specified keys to encrypt it.
 // if the volume does not exist, will create it.
 // if the volume does exist, a quick validity check is made on it, and then the result is opened
 // returns NULL if failure.  (permission denied to the file, or invalid filename passed, could be out of space... )
 // if the keys are NULL same as load_volume.
-SACK_VFS_PROC struct sack_vfs_volume * CPROC sack_vfs_load_crypt_volume( CTEXTSTR filepath, uintptr_t version, CTEXTSTR userkey, CTEXTSTR devkey );
+SACK_VFS_PROC struct sack_vfs_volume * sack_vfs_load_crypt_volume( CTEXTSTR filepath, uintptr_t version, CTEXTSTR userkey, CTEXTSTR devkey );
 // pass some memory and a memory length of the memory to use as a volume.
 // if userkey and/or devkey are not NULL the memory is assume to be encrypted with those keys.
 // the space is opened as readonly; write accesses/expanding operations will fail.
-SACK_VFS_PROC struct sack_vfs_volume * CPROC sack_vfs_use_crypt_volume( POINTER filemem, size_t size, uintptr_t version, CTEXTSTR userkey, CTEXTSTR devkey );
+SACK_VFS_PROC struct sack_vfs_volume * sack_vfs_use_crypt_volume( POINTER filemem, size_t size, uintptr_t version, CTEXTSTR userkey, CTEXTSTR devkey );
 // close a volume; release all resources; any open files will keep the volume open.
 // when the final file closes the volume will complete closing.
-SACK_VFS_PROC void            CPROC sack_vfs_unload_volume( struct sack_vfs_volume * vol );
+SACK_VFS_PROC void            sack_vfs_unload_volume( struct sack_vfs_volume * vol );
 // remove unused extra allocated space at end of volume.  During working process, extra space is preallocated for
 // things to be stored in.
-SACK_VFS_PROC void            CPROC sack_vfs_shrink_volume( struct sack_vfs_volume * vol );
+SACK_VFS_PROC void            sack_vfs_shrink_volume( struct sack_vfs_volume * vol );
 // remove encryption from volume.
-SACK_VFS_PROC LOGICAL         CPROC sack_vfs_decrypt_volume( struct sack_vfs_volume *vol );
+SACK_VFS_PROC LOGICAL         sack_vfs_decrypt_volume( struct sack_vfs_volume *vol );
 // change the key applied to a volume.
-SACK_VFS_PROC LOGICAL         CPROC sack_vfs_encrypt_volume( struct sack_vfs_volume *vol, uintptr_t version, CTEXTSTR key1, CTEXTSTR key2 );
+SACK_VFS_PROC LOGICAL         sack_vfs_encrypt_volume( struct sack_vfs_volume *vol, uintptr_t version, CTEXTSTR key1, CTEXTSTR key2 );
 // create a signature of current directory of volume.
 // can be used to validate content.  Returns 256 character hex string.
-SACK_VFS_PROC const char *    CPROC sack_vfs_get_signature( struct sack_vfs_volume *vol );
+SACK_VFS_PROC const char *    sack_vfs_get_signature( struct sack_vfs_volume *vol );
 // pass an offset from memory start and the memory start...
 // computes the distance, uses that to generate a signature
 // returns BLOCK_SIZE length signature; recommend using at least 128 bits of it.
-SACK_VFS_PROC const uint8_t * CPROC sack_vfs_get_signature2( POINTER disk, POINTER diskReal );
+SACK_VFS_PROC const uint8_t * sack_vfs_get_signature2( POINTER disk, POINTER diskReal );
 // ---------- Operations on files in volumes ------------------
 // open a file, creates if does not exist.
-SACK_VFS_PROC struct sack_vfs_file * CPROC sack_vfs_openfile( struct sack_vfs_volume *vol, CTEXTSTR filename );
+SACK_VFS_PROC struct sack_vfs_file * sack_vfs_openfile( struct sack_vfs_volume *vol, CTEXTSTR filename );
 // check if a file exists (if it does not exist, and you don't want it created, can use this and not openfile)
-SACK_VFS_PROC int CPROC sack_vfs_exists( struct sack_vfs_volume *vol, const char * file );
+SACK_VFS_PROC int sack_vfs_exists( struct sack_vfs_volume *vol, const char * file );
 // close a file.
-SACK_VFS_PROC int CPROC sack_vfs_close( struct sack_vfs_file *file );
+SACK_VFS_PROC int sack_vfs_close( struct sack_vfs_file *file );
 // get the current File Position Index (FPI).
-SACK_VFS_PROC size_t CPROC sack_vfs_tell( struct sack_vfs_file *file );
+SACK_VFS_PROC size_t sack_vfs_tell( struct sack_vfs_file *file );
 // get the length of the file
-SACK_VFS_PROC size_t CPROC sack_vfs_size( struct sack_vfs_file *file );
+SACK_VFS_PROC size_t sack_vfs_size( struct sack_vfs_file *file );
 // set the current File Position Index (FPI).
-SACK_VFS_PROC size_t CPROC sack_vfs_seek( struct sack_vfs_file *file, size_t pos, int whence );
+SACK_VFS_PROC size_t sack_vfs_seek( struct sack_vfs_file *file, size_t pos, int whence );
 // write starting at the current FPI.
-SACK_VFS_PROC size_t CPROC sack_vfs_write( struct sack_vfs_file *file, const void * data, size_t length );
+SACK_VFS_PROC size_t sack_vfs_write( struct sack_vfs_file *file, const void * data, size_t length );
 // read starting at the current FPI.
-SACK_VFS_PROC size_t CPROC sack_vfs_read( struct sack_vfs_file *file, void * data, size_t length );
+SACK_VFS_PROC size_t sack_vfs_read( struct sack_vfs_file *file, void * data, size_t length );
 // sets the file length to the current FPI.
-SACK_VFS_PROC size_t CPROC sack_vfs_truncate( struct sack_vfs_file *file );
+SACK_VFS_PROC size_t sack_vfs_truncate( struct sack_vfs_file *file );
 // psv should be struct sack_vfs_volume *vol;
 // delete a filename.  Clear the space it was occupying.
-SACK_VFS_PROC int CPROC sack_vfs_unlink_file( struct sack_vfs_volume *vol, const char * filename );
+SACK_VFS_PROC int sack_vfs_unlink_file( struct sack_vfs_volume *vol, const char * filename );
 // rename a file within the filesystem; if the target name exists, it is deleted.  If the target file is also open, it will be prevented from deletion; and duplicate filenames will end up exising(?)
-SACK_VFS_PROC LOGICAL CPROC sack_vfs_rename( uintptr_t psvInstance, const char *original, const char *newname );
+SACK_VFS_PROC LOGICAL sack_vfs_rename( uintptr_t psvInstance, const char *original, const char *newname );
 // -----------  directory interface commands. ----------------------
 // returns find_info which is then used in subsequent commands.
-SACK_VFS_PROC struct sack_vfs_find_info * CPROC sack_vfs_find_create_cursor(uintptr_t psvInst,const char *base,const char *mask );
+SACK_VFS_PROC struct sack_vfs_find_info * sack_vfs_find_create_cursor(uintptr_t psvInst,const char *base,const char *mask );
 // reset find_info to the first directory entry.  returns 0 if no entry.
-SACK_VFS_PROC int CPROC sack_vfs_find_first( struct sack_vfs_find_info *info );
+SACK_VFS_PROC int sack_vfs_find_first( struct sack_vfs_find_info *info );
 // closes a find cursor; returns 0.
-SACK_VFS_PROC int CPROC sack_vfs_find_close( struct sack_vfs_find_info *info );
+SACK_VFS_PROC int sack_vfs_find_close( struct sack_vfs_find_info *info );
 // move to the next entry returns 0 if no entry.
-SACK_VFS_PROC int CPROC sack_vfs_find_next( struct sack_vfs_find_info *info );
+SACK_VFS_PROC int sack_vfs_find_next( struct sack_vfs_find_info *info );
 // get file information for the file at the current cursor position...
-SACK_VFS_PROC char * CPROC sack_vfs_find_get_name( struct sack_vfs_find_info *info );
+SACK_VFS_PROC char * sack_vfs_find_get_name( struct sack_vfs_find_info *info );
 // get file information for the file at the current cursor position...
-SACK_VFS_PROC size_t   CPROC sack_vfs_find_get_size ( struct sack_vfs_find_info *info );
-SACK_VFS_PROC uint64_t CPROC sack_vfs_find_get_ctime( struct sack_vfs_find_info *info );
-SACK_VFS_PROC uint64_t CPROC sack_vfs_find_get_wtime( struct sack_vfs_find_info *info );
+SACK_VFS_PROC size_t   sack_vfs_find_get_size ( struct sack_vfs_find_info *info );
+SACK_VFS_PROC uint64_t sack_vfs_find_get_ctime( struct sack_vfs_find_info *info );
+SACK_VFS_PROC uint64_t sack_vfs_find_get_wtime( struct sack_vfs_find_info *info );
 #endif
 #ifdef __cplusplus
 namespace fs {
@@ -57520,71 +57588,71 @@ namespace fs {
 	// if the volume does exist, a quick validity check is made on it, and then the result is opened
 	// returns NULL if failure.  (permission denied to the file, or invalid filename passed, could be out of space... )
 	// same as load_cyrypt_volume with userkey and devkey NULL.
-	SACK_VFS_PROC struct sack_vfs_fs_volume * CPROC sack_vfs_fs_load_volume( CTEXTSTR filepath );
+	SACK_VFS_PROC struct sack_vfs_fs_volume * sack_vfs_fs_load_volume( CTEXTSTR filepath );
 	// open a volume at the specified pathname.  Use the specified keys to encrypt it.
 	// if the volume does not exist, will create it.
 	// if the volume does exist, a quick validity check is made on it, and then the result is opened
 	// returns NULL if failure.  (permission denied to the file, or invalid filename passed, could be out of space... )
 	// if the keys are NULL same as load_volume.
-	SACK_VFS_PROC struct sack_vfs_fs_volume * CPROC sack_vfs_fs_load_crypt_volume( CTEXTSTR filepath, uintptr_t version, CTEXTSTR userkey, CTEXTSTR devkey );
+	SACK_VFS_PROC struct sack_vfs_fs_volume * sack_vfs_fs_load_crypt_volume( CTEXTSTR filepath, uintptr_t version, CTEXTSTR userkey, CTEXTSTR devkey );
 	// pass some memory and a memory length of the memory to use as a volume.
 	// if userkey and/or devkey are not NULL the memory is assume to be encrypted with those keys.
 	// the space is opened as readonly; write accesses/expanding operations will fail.
-	SACK_VFS_PROC struct sack_vfs_fs_volume * CPROC sack_vfs_fs_use_crypt_volume( POINTER filemem, size_t size, uintptr_t version, CTEXTSTR userkey, CTEXTSTR devkey );
+	SACK_VFS_PROC struct sack_vfs_fs_volume * sack_vfs_fs_use_crypt_volume( POINTER filemem, size_t size, uintptr_t version, CTEXTSTR userkey, CTEXTSTR devkey );
 	// close a volume; release all resources; any open files will keep the volume open.
 	// when the final file closes the volume will complete closing.
-	SACK_VFS_PROC void            CPROC sack_vfs_fs_unload_volume( struct sack_vfs_fs_volume * vol );
+	SACK_VFS_PROC void            sack_vfs_fs_unload_volume( struct sack_vfs_fs_volume * vol );
 	// remove unused extra allocated space at end of volume.  During working process, extra space is preallocated for
 	// things to be stored in.
-	SACK_VFS_PROC void            CPROC sack_vfs_fs_shrink_volume( struct sack_vfs_fs_volume * vol );
+	SACK_VFS_PROC void            sack_vfs_fs_shrink_volume( struct sack_vfs_fs_volume * vol );
 	// remove encryption from volume.
-	SACK_VFS_PROC LOGICAL         CPROC sack_vfs_fs_decrypt_volume( struct sack_vfs_fs_volume *vol );
+	SACK_VFS_PROC LOGICAL         sack_vfs_fs_decrypt_volume( struct sack_vfs_fs_volume *vol );
 	// change the key applied to a volume.
-	SACK_VFS_PROC LOGICAL         CPROC sack_vfs_fs_encrypt_volume( struct sack_vfs_fs_volume *vol, uintptr_t version, CTEXTSTR key1, CTEXTSTR key2 );
+	SACK_VFS_PROC LOGICAL         sack_vfs_fs_encrypt_volume( struct sack_vfs_fs_volume *vol, uintptr_t version, CTEXTSTR key1, CTEXTSTR key2 );
 	// create a signature of current directory of volume.
 	// can be used to validate content.  Returns 256 character hex string.
-	SACK_VFS_PROC const char *    CPROC sack_vfs_fs_get_signature( struct sack_vfs_fs_volume *vol );
+	SACK_VFS_PROC const char *    sack_vfs_fs_get_signature( struct sack_vfs_fs_volume *vol );
 	// pass an offset from memory start and the memory start...
 	// computes the distance, uses that to generate a signature
 	// returns BLOCK_SIZE length signature; recommend using at least 128 bits of it.
-	SACK_VFS_PROC const uint8_t * CPROC sack_vfs_fs_get_signature2( POINTER disk, POINTER diskReal );
+	SACK_VFS_PROC const uint8_t * sack_vfs_fs_get_signature2( POINTER disk, POINTER diskReal );
 	// ---------- Operations on files in volumes ------------------
 	// open a file, creates if does not exist.
-	SACK_VFS_PROC struct sack_vfs_fs_file * CPROC sack_vfs_fs_openfile( struct sack_vfs_fs_volume *vol, CTEXTSTR filename );
+	SACK_VFS_PROC struct sack_vfs_fs_file * sack_vfs_fs_openfile( struct sack_vfs_fs_volume *vol, CTEXTSTR filename );
 	// check if a file exists (if it does not exist, and you don't want it created, can use this and not openfile)
-	SACK_VFS_PROC int CPROC sack_vfs_fs_exists( struct sack_vfs_fs_volume *vol, const char * file );
+	SACK_VFS_PROC int sack_vfs_fs_exists( struct sack_vfs_fs_volume *vol, const char * file );
 	// close a file.
-	SACK_VFS_PROC int CPROC sack_vfs_fs_close( struct sack_vfs_fs_file *file );
+	SACK_VFS_PROC int sack_vfs_fs_close( struct sack_vfs_fs_file *file );
 	// get the current File Position Index (FPI).
-	SACK_VFS_PROC size_t CPROC sack_vfs_fs_tell( struct sack_vfs_fs_file *file );
+	SACK_VFS_PROC size_t sack_vfs_fs_tell( struct sack_vfs_fs_file *file );
 	// get the length of the file
-	SACK_VFS_PROC size_t CPROC sack_vfs_fs_size( struct sack_vfs_fs_file *file );
+	SACK_VFS_PROC size_t sack_vfs_fs_size( struct sack_vfs_fs_file *file );
 	// set the current File Position Index (FPI).
-	SACK_VFS_PROC size_t CPROC sack_vfs_fs_seek( struct sack_vfs_fs_file *file, size_t pos, int whence );
+	SACK_VFS_PROC size_t sack_vfs_fs_seek( struct sack_vfs_fs_file *file, size_t pos, int whence );
 	// write starting at the current FPI.
-	SACK_VFS_PROC size_t CPROC sack_vfs_fs_write( struct sack_vfs_fs_file *file, const void * data, size_t length );
+	SACK_VFS_PROC size_t sack_vfs_fs_write( struct sack_vfs_fs_file *file, const void * data, size_t length );
 	// read starting at the current FPI.
-	SACK_VFS_PROC size_t CPROC sack_vfs_fs_read( struct sack_vfs_fs_file *file, void * data, size_t length );
+	SACK_VFS_PROC size_t sack_vfs_fs_read( struct sack_vfs_fs_file *file, void * data, size_t length );
 	// sets the file length to the current FPI.
-	SACK_VFS_PROC size_t CPROC sack_vfs_fs_truncate( struct sack_vfs_fs_file *file );
+	SACK_VFS_PROC size_t sack_vfs_fs_truncate( struct sack_vfs_fs_file *file );
 	// psv should be struct sack_vfs_fs_volume *vol;
 	// delete a filename.  Clear the space it was occupying.
-	SACK_VFS_PROC int CPROC sack_vfs_fs_unlink_file( struct sack_vfs_fs_volume *vol, const char * filename );
+	SACK_VFS_PROC int sack_vfs_fs_unlink_file( struct sack_vfs_fs_volume *vol, const char * filename );
 	// rename a file within the filesystem; if the target name exists, it is deleted.  If the target file is also open, it will be prevented from deletion; and duplicate filenames will end up exising(?)
-	SACK_VFS_PROC LOGICAL CPROC sack_vfs_fs_rename( uintptr_t psvInstance, const char *original, const char *newname );
+	SACK_VFS_PROC LOGICAL sack_vfs_fs_rename( uintptr_t psvInstance, const char *original, const char *newname );
 	// -----------  directory interface commands. ----------------------
 	// returns find_info which is then used in subsequent commands.
-	SACK_VFS_PROC struct sack_vfs_fs_find_info * CPROC sack_vfs_fs_find_create_cursor( uintptr_t psvInst, const char *base, const char *mask );
+	SACK_VFS_PROC struct sack_vfs_fs_find_info * sack_vfs_fs_find_create_cursor( uintptr_t psvInst, const char *base, const char *mask );
 	// reset find_info to the first directory entry.  returns 0 if no entry.
-	SACK_VFS_PROC int CPROC sack_vfs_fs_find_first( struct sack_vfs_fs_find_info *info );
+	SACK_VFS_PROC int sack_vfs_fs_find_first( struct sack_vfs_fs_find_info *info );
 	// closes a find cursor; returns 0.
-	SACK_VFS_PROC int CPROC sack_vfs_fs_find_close( struct sack_vfs_fs_find_info *info );
+	SACK_VFS_PROC int sack_vfs_fs_find_close( struct sack_vfs_fs_find_info *info );
 	// move to the next entry returns 0 if no entry.
-	SACK_VFS_PROC int CPROC sack_vfs_fs_find_next( struct sack_vfs_fs_find_info *info );
+	SACK_VFS_PROC int sack_vfs_fs_find_next( struct sack_vfs_fs_find_info *info );
 	// get file information for the file at the current cursor position...
-	SACK_VFS_PROC char * CPROC sack_vfs_fs_find_get_name( struct sack_vfs_fs_find_info *info );
+	SACK_VFS_PROC char * sack_vfs_fs_find_get_name( struct sack_vfs_fs_find_info *info );
 	// get file information for the file at the current cursor position...
-	SACK_VFS_PROC size_t CPROC sack_vfs_fs_find_get_size( struct sack_vfs_fs_find_info *info );
+	SACK_VFS_PROC size_t sack_vfs_fs_find_get_size( struct sack_vfs_fs_find_info *info );
 #ifdef __cplusplus
 }
 #endif
@@ -57735,81 +57803,83 @@ namespace objStore {
 // if the volume does exist, a quick validity check is made on it, and then the result is opened
 // returns NULL if failure.  (permission denied to the file, or invalid filename passed, could be out of space... )
 // same as load_cyrypt_volume with userkey and devkey NULL.
-SACK_VFS_PROC struct sack_vfs_os_volume * CPROC sack_vfs_os_load_volume( CTEXTSTR filepath, struct file_system_mounted_interface* mount );
+SACK_VFS_PROC struct sack_vfs_os_volume * sack_vfs_os_load_volume( CTEXTSTR filepath, struct file_system_mounted_interface* mount );
 /*
     polish volume cleans up some of the dirty sectors.  It starts a background thread that
 	waits a short time of no dirty updates. (flush, but polish <-> dirty )
  */
-SACK_VFS_PROC void CPROC sack_vfs_os_polish_volume( struct sack_vfs_os_volume* vol );
-SACK_VFS_PROC void CPROC sack_vfs_os_flush_volume( struct sack_vfs_os_volume* vol, LOGICAL unload );
+SACK_VFS_PROC void sack_vfs_os_polish_volume( struct sack_vfs_os_volume* vol );
+SACK_VFS_PROC void sack_vfs_os_flush_volume( struct sack_vfs_os_volume* vol, LOGICAL unload );
 // open a volume at the specified pathname.  Use the specified keys to encrypt it.
 // if the volume does not exist, will create it.
 // if the volume does exist, a quick validity check is made on it, and then the result is opened
 // returns NULL if failure.  (permission denied to the file, or invalid filename passed, could be out of space... )
 // if the keys are NULL same as load_volume.
-SACK_VFS_PROC struct sack_vfs_os_volume * CPROC sack_vfs_os_load_crypt_volume( CTEXTSTR filepath, uintptr_t version, CTEXTSTR userkey, CTEXTSTR devkey, struct file_system_mounted_interface* mount );
+SACK_VFS_PROC struct sack_vfs_os_volume * sack_vfs_os_load_crypt_volume( CTEXTSTR filepath, uintptr_t version, CTEXTSTR userkey, CTEXTSTR devkey, struct file_system_mounted_interface* mount );
 // pass some memory and a memory length of the memory to use as a volume.
 // if userkey and/or devkey are not NULL the memory is assume to be encrypted with those keys.
 // the space is opened as readonly; write accesses/expanding operations will fail.
-SACK_VFS_PROC struct sack_vfs_os_volume * CPROC sack_vfs_os_use_crypt_volume( POINTER filemem, size_t size, uintptr_t version, CTEXTSTR userkey, CTEXTSTR devkey );
+SACK_VFS_PROC struct sack_vfs_os_volume * sack_vfs_os_use_crypt_volume( POINTER filemem, size_t size, uintptr_t version, CTEXTSTR userkey, CTEXTSTR devkey );
 // close a volume; release all resources; any open files will keep the volume open.
 // when the final file closes the volume will complete closing.
-SACK_VFS_PROC void            CPROC sack_vfs_os_unload_volume( struct sack_vfs_os_volume * vol );
+SACK_VFS_PROC void            sack_vfs_os_unload_volume( struct sack_vfs_os_volume * vol );
 // remove unused extra allocated space at end of volume.  During working process, extra space is preallocated for
 // things to be stored in.
-SACK_VFS_PROC void            CPROC sack_vfs_os_shrink_volume( struct sack_vfs_os_volume * vol );
+SACK_VFS_PROC void            sack_vfs_os_shrink_volume( struct sack_vfs_os_volume * vol );
 // remove encryption from volume.
-SACK_VFS_PROC LOGICAL         CPROC sack_vfs_os_decrypt_volume( struct sack_vfs_os_volume *vol );
+SACK_VFS_PROC LOGICAL         sack_vfs_os_decrypt_volume( struct sack_vfs_os_volume *vol );
 // change the key applied to a volume.
-SACK_VFS_PROC LOGICAL         CPROC sack_vfs_os_encrypt_volume( struct sack_vfs_os_volume *vol, uintptr_t version, CTEXTSTR key1, CTEXTSTR key2 );
+SACK_VFS_PROC LOGICAL         sack_vfs_os_encrypt_volume( struct sack_vfs_os_volume *vol, uintptr_t version, CTEXTSTR key1, CTEXTSTR key2 );
 // create a signature of current directory of volume.
 // can be used to validate content.  Returns 256 character hex string.
-SACK_VFS_PROC const char *    CPROC sack_vfs_os_get_signature( struct sack_vfs_os_volume *vol );
+SACK_VFS_PROC const char *    sack_vfs_os_get_signature( struct sack_vfs_os_volume *vol );
 // pass an offset from memory start and the memory start...
 // computes the distance, uses that to generate a signature
 // returns BLOCK_SIZE length signature; recommend using at least 128 bits of it.
-SACK_VFS_PROC const uint8_t * CPROC sack_vfs_os_get_signature2( POINTER disk, POINTER diskReal );
+SACK_VFS_PROC const uint8_t * sack_vfs_os_get_signature2( POINTER disk, POINTER diskReal );
 // extra file system operations, not in the normal API definition set.
-SACK_VFS_PROC uintptr_t CPROC sack_vfs_os_system_ioctl( struct sack_vfs_os_volume* psvInstance, uintptr_t opCode, ... );
+SACK_VFS_PROC uintptr_t sack_vfs_os_system_ioctl( struct sack_vfs_os_volume* psvInstance, uintptr_t opCode, ... );
 // ---------- Operations on files in volumes ------------------
 // open a file, creates if does not exist.
-SACK_VFS_PROC struct sack_vfs_os_file * CPROC sack_vfs_os_openfile( struct sack_vfs_os_volume *vol, CTEXTSTR filename );
+SACK_VFS_PROC struct sack_vfs_os_file * sack_vfs_os_openfile( struct sack_vfs_os_volume *vol, CTEXTSTR filename );
 // check if a file exists (if it does not exist, and you don't want it created, can use this and not openfile)
-SACK_VFS_PROC int CPROC sack_vfs_os_exists( struct sack_vfs_os_volume *vol, const char * file );
+SACK_VFS_PROC int sack_vfs_os_exists( struct sack_vfs_os_volume *vol, const char * file );
 // extra operations, not in the normal API definition set.
-SACK_VFS_PROC uintptr_t CPROC sack_vfs_os_file_ioctl( struct sack_vfs_os_file *file, uintptr_t opCode, ... );
+SACK_VFS_PROC uintptr_t sack_vfs_os_file_ioctl( struct sack_vfs_os_file *file, uintptr_t opCode, ... );
 // close a file.
-SACK_VFS_PROC int CPROC sack_vfs_os_close( struct sack_vfs_os_file *file );
+SACK_VFS_PROC int sack_vfs_os_close( struct sack_vfs_os_file *file );
 // get the current File Position Index (FPI).
-SACK_VFS_PROC size_t CPROC sack_vfs_os_tell( struct sack_vfs_os_file *file );
+SACK_VFS_PROC size_t sack_vfs_os_tell( struct sack_vfs_os_file *file );
 // get the length of the file
-SACK_VFS_PROC size_t CPROC sack_vfs_os_size( struct sack_vfs_os_file *file );
+SACK_VFS_PROC size_t sack_vfs_os_size( struct sack_vfs_os_file *file );
 // set the current File Position Index (FPI).
-SACK_VFS_PROC size_t CPROC sack_vfs_os_seek( struct sack_vfs_os_file *file, size_t pos, int whence );
+SACK_VFS_PROC size_t sack_vfs_os_seek( struct sack_vfs_os_file *file, size_t pos, int whence );
 // write starting at the current FPI.
-SACK_VFS_PROC size_t CPROC sack_vfs_os_write( struct sack_vfs_os_file *file, const void * data, size_t length );
+SACK_VFS_PROC size_t sack_vfs_os_write( struct sack_vfs_os_file *file, const void * data, size_t length );
 // read starting at the current FPI.
-SACK_VFS_PROC size_t CPROC sack_vfs_os_read( struct sack_vfs_os_file *file, void * data, size_t length );
+SACK_VFS_PROC size_t sack_vfs_os_read( struct sack_vfs_os_file *file, void * data, size_t length );
 // sets the file length to the current FPI.
-SACK_VFS_PROC size_t CPROC sack_vfs_os_truncate( struct sack_vfs_os_file *file );
+SACK_VFS_PROC size_t sack_vfs_os_truncate( struct sack_vfs_os_file *file );
 // psv should be struct sack_vfs_os_volume *vol;
 // delete a filename.  Clear the space it was occupying.
-SACK_VFS_PROC int CPROC sack_vfs_os_unlink_file( struct sack_vfs_os_volume *vol, const char * filename );
+SACK_VFS_PROC int sack_vfs_os_unlink_file( struct sack_vfs_os_volume *vol, const char * filename );
 // rename a file within the filesystem; if the target name exists, it is deleted.  If the target file is also open, it will be prevented from deletion; and duplicate filenames will end up exising(?)
-SACK_VFS_PROC LOGICAL CPROC sack_vfs_os_rename( uintptr_t psvInstance, const char *original, const char *newname );
+SACK_VFS_PROC LOGICAL sack_vfs_os_rename( uintptr_t psvInstance, const char *original, const char *newname );
 // -----------  directory interface commands. ----------------------
 // returns find_info which is then used in subsequent commands.
-SACK_VFS_PROC struct sack_vfs_os_find_info * CPROC sack_vfs_os_find_create_cursor( uintptr_t psvInst, const char *base, const char *mask );
+SACK_VFS_PROC struct sack_vfs_os_find_info * sack_vfs_os_find_create_cursor( uintptr_t psvInst, const char *base, const char *mask );
 // reset find_info to the first directory entry.  returns 0 if no entry.
-SACK_VFS_PROC int CPROC sack_vfs_os_find_first( struct sack_vfs_os_find_info *info );
+SACK_VFS_PROC int sack_vfs_os_find_first( struct sack_vfs_os_find_info *info );
 // closes a find cursor; returns 0.
-SACK_VFS_PROC int CPROC sack_vfs_os_find_close( struct sack_vfs_os_find_info *info );
+SACK_VFS_PROC int sack_vfs_os_find_close( struct sack_vfs_os_find_info *info );
 // move to the next entry returns 0 if no entry.
-SACK_VFS_PROC int CPROC sack_vfs_os_find_next( struct sack_vfs_os_find_info *info );
+SACK_VFS_PROC int sack_vfs_os_find_next( struct sack_vfs_os_find_info *info );
 // get file information for the file at the current cursor position...
-SACK_VFS_PROC char * CPROC sack_vfs_os_find_get_name( struct sack_vfs_os_find_info *info );
+SACK_VFS_PROC char * sack_vfs_os_find_get_name( struct sack_vfs_os_find_info *info );
 // get file information for the file at the current cursor position...
-SACK_VFS_PROC size_t CPROC sack_vfs_os_find_get_size( struct sack_vfs_os_find_info *info );
+SACK_VFS_PROC size_t sack_vfs_os_find_get_size( struct sack_vfs_os_find_info *info );
+// get times for the object in storage.
+SACK_VFS_PROC LOGICAL sack_vfs_os_get_times( struct sack_vfs_os_file* file, uint64_t** timeArray, size_t* timeCount );
 #ifdef __cplusplus
 }
 #endif
@@ -58015,7 +58085,6 @@ namespace fs {
 #  define BC(n) BLOCK_CACHE_##n
 #endif
 /* AFTER DEF */
-int sack_vfs_volume;
 enum block_cache_entries
 {
 	BC( ZERO )
@@ -58111,13 +58180,6 @@ struct sack_vfs_disk {
 	struct sack_vfs_diskSection blocks[];
 };
 */
-struct sack_vfs_os_BAT_info {
-	FPI sectorStart;
-	FPI sectorEnd;
-	BLOCKINDEX blockStart;
-	int size;
-};
-static int const seglock_mask_size = 4;
 #ifdef DEBUG_SECTOR_DIRT
 		  /*lprintf( "Already dirty on %d", n );*/
 #define SMUDGECACHE(vol,n) {	 if( !TESTFLAG( vol->dirty, n ) ) {		SETFLAG( vol->dirty, n );		 lprintf( "set dirty on %d", n);	 } else {	 }         }
@@ -58126,6 +58188,15 @@ static int const seglock_mask_size = 4;
 #define SMUDGECACHE(vol,n) {    vfs_os_smudge_cache(vol,n);   }
 #define CLEANCACHE(vol,n) {	 RESETFLAG( vol->dirty, n ); }
 #endif
+#ifndef ROLLBACK_JOURNAL_DEFINED
+#define ROLLBACK_JOURNAL_DEFINED
+static int const seglock_mask_size = 4;
+struct sack_vfs_os_BAT_info {
+	FPI sectorStart;
+	FPI sectorEnd;
+	BLOCKINDEX blockStart;
+	int size;
+};
 struct vfs_os_rollback_journal {
 	struct sack_vfs_os_file* rollback_file;
 	struct sack_vfs_os_file* rollback_journal_file;
@@ -58146,7 +58217,8 @@ PREFIX_PACKED struct vfs_os_rollback_entry {
 		uint64_t zero : 1;
 	} flags;
 	// block size is retrievable when the block is reloadeded to write
-} PACKED entries[1];
+// PACKED entries[1];
+};
 PREFIX_PACKED struct vfs_os_rollback_header {
 	struct {
 		uint64_t dirty : 1;
@@ -58163,6 +58235,7 @@ PREFIX_PACKED struct vfs_os_rollback_header {
 	// where this is tracked.
 	struct vfs_os_rollback_entry  entries[1];
 }PACKED ;
+#endif
 struct sack_vfs_volume {
 	const char * volname;
 #ifdef FILE_BASED_VFS
@@ -60283,7 +60356,6 @@ namespace fs {
 #  define BC(n) BLOCK_CACHE_##n
 #endif
 /* AFTER DEF */
-int sack_vfs_volume;
 enum block_cache_entries
 {
 	BC( ZERO )
@@ -60379,13 +60451,6 @@ struct sack_vfs_disk {
 	struct sack_vfs_diskSection blocks[];
 };
 */
-struct sack_vfs_os_BAT_info {
-	FPI sectorStart;
-	FPI sectorEnd;
-	BLOCKINDEX blockStart;
-	int size;
-};
-static int const seglock_mask_size = 4;
 #ifdef DEBUG_SECTOR_DIRT
 		  /*lprintf( "Already dirty on %d", n );*/
 #define SMUDGECACHE(vol,n) {	 if( !TESTFLAG( vol->dirty, n ) ) {		SETFLAG( vol->dirty, n );		 lprintf( "set dirty on %d", n);	 } else {	 }         }
@@ -60394,6 +60459,15 @@ static int const seglock_mask_size = 4;
 #define SMUDGECACHE(vol,n) {    vfs_os_smudge_cache(vol,n);   }
 #define CLEANCACHE(vol,n) {	 RESETFLAG( vol->dirty, n ); }
 #endif
+#ifndef ROLLBACK_JOURNAL_DEFINED
+#define ROLLBACK_JOURNAL_DEFINED
+static int const seglock_mask_size = 4;
+struct sack_vfs_os_BAT_info {
+	FPI sectorStart;
+	FPI sectorEnd;
+	BLOCKINDEX blockStart;
+	int size;
+};
 struct vfs_os_rollback_journal {
 	struct sack_vfs_os_file* rollback_file;
 	struct sack_vfs_os_file* rollback_journal_file;
@@ -60414,7 +60488,8 @@ PREFIX_PACKED struct vfs_os_rollback_entry {
 		uint64_t zero : 1;
 	} flags;
 	// block size is retrievable when the block is reloadeded to write
-} PACKED entries[1];
+// PACKED entries[1];
+};
 PREFIX_PACKED struct vfs_os_rollback_header {
 	struct {
 		uint64_t dirty : 1;
@@ -60431,6 +60506,7 @@ PREFIX_PACKED struct vfs_os_rollback_header {
 	// where this is tracked.
 	struct vfs_os_rollback_entry  entries[1];
 }PACKED ;
+#endif
 struct sack_vfs_volume {
 	const char * volname;
 #ifdef FILE_BASED_VFS
@@ -62509,7 +62585,6 @@ namespace fs {
 #  define BC(n) BLOCK_CACHE_##n
 #endif
 /* AFTER DEF */
-int sack_vfs_volume;
 enum block_cache_entries
 {
 	BC( ZERO )
@@ -62605,13 +62680,6 @@ struct sack_vfs_disk {
 	struct sack_vfs_diskSection blocks[];
 };
 */
-struct sack_vfs_os_BAT_info {
-	FPI sectorStart;
-	FPI sectorEnd;
-	BLOCKINDEX blockStart;
-	int size;
-};
-static int const seglock_mask_size = 4;
 #ifdef DEBUG_SECTOR_DIRT
 		  /*lprintf( "Already dirty on %d", n );*/
 #define SMUDGECACHE(vol,n) {	 if( !TESTFLAG( vol->dirty, n ) ) {		SETFLAG( vol->dirty, n );		 lprintf( "set dirty on %d", n);	 } else {	 }         }
@@ -62620,6 +62688,15 @@ static int const seglock_mask_size = 4;
 #define SMUDGECACHE(vol,n) {    vfs_os_smudge_cache(vol,n);   }
 #define CLEANCACHE(vol,n) {	 RESETFLAG( vol->dirty, n ); }
 #endif
+#ifndef ROLLBACK_JOURNAL_DEFINED
+#define ROLLBACK_JOURNAL_DEFINED
+static int const seglock_mask_size = 4;
+struct sack_vfs_os_BAT_info {
+	FPI sectorStart;
+	FPI sectorEnd;
+	BLOCKINDEX blockStart;
+	int size;
+};
 struct vfs_os_rollback_journal {
 	struct sack_vfs_os_file* rollback_file;
 	struct sack_vfs_os_file* rollback_journal_file;
@@ -62640,7 +62717,8 @@ PREFIX_PACKED struct vfs_os_rollback_entry {
 		uint64_t zero : 1;
 	} flags;
 	// block size is retrievable when the block is reloadeded to write
-} PACKED entries[1];
+// PACKED entries[1];
+};
 PREFIX_PACKED struct vfs_os_rollback_header {
 	struct {
 		uint64_t dirty : 1;
@@ -62657,6 +62735,7 @@ PREFIX_PACKED struct vfs_os_rollback_header {
 	// where this is tracked.
 	struct vfs_os_rollback_entry  entries[1];
 }PACKED ;
+#endif
 struct sack_vfs_volume {
 	const char * volname;
 #ifdef FILE_BASED_VFS
@@ -63028,20 +63107,7 @@ static void WriteIntoBlock( struct sack_vfs_os_file* file, int blockType, FPI po
 //#define DEBUG_LOG_LOCKS
 //#define INVERSE_TEST
 //#define DEBUG_DELETE_BALANCE
-#if 0
-////
-// failure case
-//       A
-//   B      C
-// D   E  F
-//
-//  delete A
-//
-//       A
-//   B      C
-// D   E  F
-#endif
-#define DEBUG_AVL_DETAIL
+//#define DEBUG_AVL_DETAIL
 int nodes;
 struct storageTimelineCache {
 	BLOCKINDEX timelineSector;
@@ -63055,8 +63121,7 @@ typedef union timelineBlockType {
 	// real timeline index.
 	uint64_t raw;
 	struct timelineBlockReference {
-		uint64_t depth : 6;
-		uint64_t index : 58;
+		uint64_t index;
 	} ref;
 } TIMELINE_BLOCK_TYPE;
 // this is milliseconds since 1970 (unix epoc) * 256 + timezoneOffset /15 in the low byte
@@ -63075,22 +63140,8 @@ PREFIX_PACKED struct timelineHeader {
 // me_fpi is the physical FPI in the timeline file of the TIMELINE_BLOCK_TYPE that references 'this' block.
 // structure defines little endian structure for storage.
 PREFIX_PACKED struct storageTimelineNode {
-	// if dirent_fpi == 0; it's free.
+	// if dirent_fpi == 0; it's free; and priorData will point at another free node
 	uint64_t dirent_fpi;
-	TIMELINE_BLOCK_TYPE prior;
-	// if the block is free, sgreater is used as pointer to next free block
-	// delete an object can leave free timeline nodes in the middle of the physical chain.
-	//uint64_t padding[4];
-/*
-	uint64_t ctime;                      // uses timeGetTime64() tick resolution
-	//union {
-	//	uint64_t raw;
-	//	TIMELINE_TIME_TYPE parts;         // file time tick/ created stamp, sealing stamp
-	//}ctime;
-	TIMELINE_BLOCK_TYPE clesser;         // FPI/32 within timeline chain
-	TIMELINE_BLOCK_TYPE sgreater;        // FPI/32 within timeline chain + (child depth in this direction AVL)
-	TIMELINE_BLOCK_TYPE cparent;
-*/
 	uint32_t filler32_1;
 	uint16_t priorDataPad;
  // how much of the last block in the file is not used
@@ -63098,14 +63149,6 @@ PREFIX_PACKED struct storageTimelineNode {
  // lesser least significant byte of time... sometimes can read time including timezone offset with time - 1 byte
 	uint8_t  timeTz;
 	uint64_t time;
-	//union {
-	//	uint64_t raw;
-	//	TIMELINE_TIME_TYPE parts;        // time file was stored
-	//}stime;
-         // FPI/32 within timeline chain
-	TIMELINE_BLOCK_TYPE slesser;
-        // FPI/32 within timeline chain + (child depth in this direction AVL)
-	TIMELINE_BLOCK_TYPE sgreater;
  // it is know by  ( me_fpi & 0x3f ) == 32 or == 36 whether this is slesser or sgreater, (me_fpi & ~3f) = parent_fpi
 	uint64_t me_fpi;
  // if not 0, references a start block version of data.
@@ -63118,28 +63161,6 @@ struct memoryTimelineNode {
 	// the end of this is the same as storage timeline.
 	struct storageTimelineNode* disk;
 	enum block_cache_entries diskCache;
-#if 0
-   // FPI on disk
-	FPI dirent_fpi;
-	// if the block is free, sgreater is used as pointer to next free block
-	// delete an object can leave free timeline nodes in the middle of the physical chain.
-	TIMELINE_BLOCK_TYPE prior;
-	PREFIX_PACKED struct {
-		uint32_t filler_32;
-		uint16_t priorDataPad;
-		uint8_t filler_8;
-		uint8_t timeTz;
-	} PACKED bits;
-	uint64_t time;
-         // FPI/32 within timeline chain
-	TIMELINE_BLOCK_TYPE slesser;
-        // FPI/32 within timeline chain + (child depth in this direction AVL)
-	TIMELINE_BLOCK_TYPE sgreater;
- // it is know by  ( me_fpi & 0x3f ) == 32 or == 36 whether this is slesser or sgreater, (me_fpi & ~3f) = parent_fpi
-	uint64_t me_fpi;
- // if not 0, references a start block version of data.
-	uint64_t priorData;
-#endif
 };
 struct storageTimelineCursor {
   // save stack of parents in cursor
@@ -63267,329 +63288,6 @@ void reloadTimeEntry( struct memoryTimelineNode* time, struct sack_vfs_os_volume
 	time->index = timeEntry;
 	time->this_fpi = pos;
 }
-static void DumpTimelineTreeWork( struct sack_vfs_os_volume* vol, int level, struct memoryTimelineNode* parent, LOGICAL unused DBG_PASS ) {
-	struct memoryTimelineNode curNode;
-	static char indent[256];
-	int i;
-#if 1
-	lprintf( "input node %d %d %d", parent->index
-		, parent->disk->slesser.ref.index
-		, parent->disk->sgreater.ref.index
-	);
-#endif
-	if( parent->disk->slesser.ref.index ) {
-		reloadTimeEntry( &curNode, vol, parent->disk->slesser.ref.index VTReadOnly GRTENoLog DBG_RELAY );
-#if 0
-		lprintf( "(lesser) go to node %d", curNode.index );
-#endif
-		DumpTimelineTreeWork( vol, level + 1, &curNode, unused DBG_RELAY );
-		dropRawTimeEntry( vol, curNode.diskCache GRTENoLog DBG_RELAY );
-	}
-	for( i = 0; i < level * 3; i++ )
-		indent[i] = ' ';
-	indent[i] = 0;
-	lprintf( "CurNode: (%s -> %5d  %d <-%d %s has children %d %d  with depths of %d %d"
-		, indent
-		, (int)parent->disk->dirent_fpi
-		, (int)parent->index
-		, parent->disk->me_fpi >> 6
-		, ( ( parent->disk->me_fpi & 0x3f ) == 0x20 ) ? "L"
-		: ( ( parent->disk->me_fpi & 0x3f ) == 0x10 ) ? "R"
-		: "G"
-		, (int)(parent->disk->slesser.ref.index)
-		, (int)(parent->disk->sgreater.ref.index)
-		, (int)(parent->disk->slesser.ref.depth)
-		, (int)(parent->disk->sgreater.ref.depth)
-	);
-	if( parent->disk->sgreater.ref.index ) {
-		reloadTimeEntry( &curNode, vol, parent->disk->sgreater.ref.index VTReadOnly GRTENoLog DBG_RELAY );
-#if 0
-		lprintf( "(greater) go to node %d", curNode.index );
-#endif
-		DumpTimelineTreeWork( vol, level + 1, &curNode, unused DBG_RELAY );
-		dropRawTimeEntry( vol, curNode.diskCache GRTENoLog DBG_RELAY );
-	}
-}
-//---------------------------------------------------------------------------
-static void DumpTimelineTree( struct sack_vfs_os_volume* vol, LOGICAL unused DBG_PASS ) {
-	enum block_cache_entries cache = BC( TIMELINE );
-// (struct storageTimeline *)vfs_os_BSEEK( vol, FIRST_TIMELINE_BLOCK, &cache );
-	struct storageTimeline* timeline = vol->timeline;
-	SETFLAG( vol->seglock, cache );
-	struct memoryTimelineNode curNode;
-	{
-		if( !timeline->header.srootNode.ref.index ) {
-			return;
-		}
-		reloadTimeEntry( &curNode, vol
-			, timeline->header.srootNode.ref.index  VTReadOnly GRTENoLog DBG_RELAY );
-	}
-	DumpTimelineTreeWork( vol, 0, &curNode, unused DBG_RELAY );
-	dropRawTimeEntry( vol, curNode.diskCache GRTENoLog DBG_RELAY );
-}
-//---------------------------------------------------------------------------
-static void LogTimelineTreeWork( PVARTEXT pvt, struct sack_vfs_os_volume* vol, int level, struct memoryTimelineNode* parent DBG_PASS ) {
-	struct memoryTimelineNode curNode;
-	static char indent[256];
-	int i;
-#if 0
-	vtprintf( pvt,"input node %d %d %d\n", parent->index
-		, parent->disk->slesser.ref.index
-		, parent->disk->sgreater.ref.index
-	);
-#endif
-	if( parent->disk->slesser.ref.index ) {
-		reloadTimeEntry( &curNode, vol, parent->disk->slesser.ref.index VTReadOnly GRTENoLog DBG_RELAY );
-#if 0
-		vtprintf( pvt,"(lesser) go to node %d", curNode.index );
-#endif
-		LogTimelineTreeWork( pvt, vol, level + 1, &curNode DBG_RELAY );
-		dropRawTimeEntry( vol, curNode.diskCache GRTENoLog DBG_RELAY );
-	}
-	for( i = 0; i < level * 3; i++ )
-		indent[i] = ' ';
-	indent[i] = 0;
-	vtprintf( pvt,"CurNode: (%s -> %5d  %d <-%d %s has children %d %d  with depths of %d %d\n"
-		, indent
-		, (int)parent->disk->dirent_fpi
-		, (int)parent->index
-		, parent->disk->me_fpi >> 6
-		, ( ( parent->disk->me_fpi & 0x3f ) == 0x20 ) ? "L"
-		: ( ( parent->disk->me_fpi & 0x3f ) == 0x10 ) ? "R"
-		: "G"
-		, (int)( parent->disk->slesser.ref.index )
-		, (int)( parent->disk->sgreater.ref.index )
-		, (int)( parent->disk->slesser.ref.depth )
-		, (int)( parent->disk->sgreater.ref.depth )
-	);
-	if( parent->disk->sgreater.ref.index ) {
-		reloadTimeEntry( &curNode, vol, parent->disk->sgreater.ref.index VTReadOnly GRTENoLog DBG_RELAY );
-#if 0
-		vtprintf( pvt,"(greater) go to node %d", curNode.index );
-#endif
-		LogTimelineTreeWork( pvt, vol, level + 1, &curNode DBG_RELAY );
-	}
-}
-//---------------------------------------------------------------------------
-static void LogTimelineTree( PVARTEXT pvt, struct sack_vfs_os_volume* vol, BLOCKINDEX fromRoot DBG_PASS ) {
-	enum block_cache_entries cache = BC( TIMELINE );
-// (struct storageTimeline *)vfs_os_BSEEK( vol, FIRST_TIMELINE_BLOCK, &cache );
-	struct storageTimeline* timeline = vol->timeline;
-	SETFLAG( vol->seglock, cache );
-	struct memoryTimelineNode curNode;
-	{
-		if( !timeline->header.srootNode.ref.index ) {
-			return;
-		}
-		reloadTimeEntry( &curNode, vol
-			, fromRoot?fromRoot:timeline->header.srootNode.ref.index  VTReadOnly GRTENoLog DBG_RELAY );
-	}
-	LogTimelineTreeWork( pvt, vol, 0, &curNode DBG_RELAY );
-	dropRawTimeEntry( vol, curNode.diskCache GRTENoLog DBG_RELAY );
-}
-//---------------------------------------------------------------------------
-#ifdef DEBUG_DELETE_LAST
-static void checkRoot( struct sack_vfs_os_volume* vol ) {
-	enum block_cache_entries cache =
-#ifdef DEBUG_VALIDATE_TREE
-		BC( TIMELINE_RO )
-#else
-		BC( TIMELINE )
-#endif
-		;
-	// (struct storageTimeline *)vfs_os_BSEEK( vol, FIRST_TIMELINE_BLOCK, &cache );
-	struct storageTimeline* timeline = vol->timeline;
-	struct memoryTimelineNode curNode;
-	if( !timeline->header.srootNode.ref.index ) {
-		return;
-	}
-	reloadTimeEntry( &curNode, vol
-		, timeline->header.srootNode.ref.index VTReadOnly GRTENoLog  DBG_SRC );
-	if( curNode.disk->me_fpi != 0x10 ) {
-		lprintf( "Root of tree does not point to itself." );
-		DebugBreak();
-	}
-	dropRawTimeEntry( vol, curNode.diskCache GRTENoLog DBG_SRC );
-}
-#endif
-//---------------------------------------------------------------------------
-#ifdef DEBUG_VALIDATE_TREE
-static int ValidateTimelineTreeWork( struct sack_vfs_os_volume* vol, int level
-	, struct memoryTimelineNode* parent
-	, struct memoryTimelineNode* left
-	, struct memoryTimelineNode* right
-	, BLOCKINDEX index DBG_PASS ) {
-	struct memoryTimelineNode curNodeLeft;
-	struct memoryTimelineNode curNodeRight;
-	static char indent[256];
-	int n = 0;
-#if 0
-	lprintf( "input node %d %d %d", parent->index
-		, parent->disk->slesser.ref.index
-		, parent->disk->sgreater.ref.index
-	);
-#endif
-	if( parent->disk->slesser.ref.index ) {
-		reloadTimeEntry( left, vol, parent->disk->slesser.ref.index VTReadOnly GRTENoLog DBG_RELAY );
-#if 0
-		lprintf( "(lesser) go to node %d", curNode.index );
-#endif
-		if( ( parent->this_fpi + sane_offsetof( struct storageTimelineNode, slesser ) ) != left->disk->me_fpi ) {
-			DumpTimelineTree( vol, 0 DBG_SRC );
-			DebugBreak();
-		}
-		if( !parent->disk->slesser.ref.index && parent->disk->slesser.ref.depth )
-			DebugBreak();
-		if( !parent->disk->sgreater.ref.index && parent->disk->sgreater.ref.depth )
-			DebugBreak();
-		n += ValidateTimelineTreeWork( vol, level + 1, left, &curNodeLeft, &curNodeRight, parent->disk->slesser.ref.index DBG_RELAY );
-		// -- check depth of this vs what the children have
-		if( curNodeLeft.index && ( ( ( curNodeLeft.disk->slesser.ref.depth + 1 ) != left->disk->slesser.ref.depth )
-			&& ( ( curNodeLeft.disk->sgreater.ref.depth + 1 ) != left->disk->slesser.ref.depth ) ) ) {
-			lprintf( "Depth is not correct..." );
-			DebugBreak();
-		}
-		if( !curNodeLeft.index && left->disk->slesser.ref.depth ) {
-			lprintf( "Depth is not correct..." );
-			DebugBreak();
-		}
-		if( curNodeRight.index && ( ( ( curNodeRight.disk->slesser.ref.depth + 1 ) != left->disk->sgreater.ref.depth )
-			&& ( ( curNodeRight.disk->sgreater.ref.depth + 1 ) != left->disk->sgreater.ref.depth ) ) ) {
-			lprintf( "Depth is not correct..." );
-			DebugBreak();
-		}
-		if( !curNodeRight.index && left->disk->sgreater.ref.depth ) {
-			lprintf( "Depth is not correct..." );
-			DebugBreak();
-		}
-		// -- end check depth
-		if( curNodeLeft.index && curNodeRight.index )
-			if( curNodeLeft.disk->time > curNodeRight.disk->time ) {
-				lprintf( "tree is out of order children.  %d", left->index );
-				DumpTimelineTree( vol, 0 DBG_SRC );
-				DebugBreak();
-			}
-		if( curNodeLeft.index ) {
-			if( curNodeLeft.disk->time > left->disk->time ) {
-				lprintf( "tree is out of order to left.  %d", left->index );
-				DumpTimelineTree( vol, 0 DBG_SRC );
-				DebugBreak();
-			}
-			dropRawTimeEntry( vol, curNodeLeft.diskCache GRTENoLog DBG_RELAY );
-		}
-		if( curNodeRight.index ) {
-			if( curNodeRight.disk->time < left->disk->time ) {
-				lprintf( "tree is out of order to right.  %d", left->index );
-				DumpTimelineTree( vol, 0 DBG_SRC );
-				DebugBreak();
-			}
-			dropRawTimeEntry( vol, curNodeRight.diskCache GRTENoLog DBG_RELAY );
-		}
-	}
-	else
-		left->index = 0;
-	if( parent->disk->sgreater.ref.index ) {
-		reloadTimeEntry( right, vol, parent->disk->sgreater.ref.index VTReadOnly GRTENoLog DBG_RELAY );
-#if 0
-		lprintf( "(greater) go to node %d", right->index );
-#endif
-		if( ( parent->this_fpi + sane_offsetof( struct storageTimelineNode, sgreater ) ) != right->disk->me_fpi ) {
-			DumpTimelineTree( vol, 0 DBG_SRC );
-			DebugBreak();
-		}
-		n += ValidateTimelineTreeWork( vol, level + 1, right, &curNodeLeft, &curNodeRight, parent->disk->sgreater.ref.index DBG_RELAY );
-		// -- check depth of this vs what the children have
-		if( curNodeLeft.index && ( ( ( curNodeLeft.disk->slesser.ref.depth + 1) != right->disk->slesser.ref.depth )
-				&& ( ( curNodeLeft.disk->sgreater.ref.depth + 1) != right->disk->slesser.ref.depth ) ) ) {
-			lprintf( "Depth is not correct...");
-			DebugBreak();
-		}
-		if( !curNodeLeft.index && right->disk->slesser.ref.depth ) {
-			lprintf( "Depth is not correct..." );
-			DebugBreak();
-		}
-		if( curNodeRight.index && ( ( ( curNodeRight.disk->slesser.ref.depth + 1 ) != right->disk->sgreater.ref.depth )
-			&& ( ( curNodeRight.disk->sgreater.ref.depth + 1 ) != right->disk->sgreater.ref.depth ) ) ) {
-			lprintf( "Depth is not correct..." );
-			DebugBreak();
-		}
-		if( !curNodeRight.index && right->disk->sgreater.ref.depth ) {
-			lprintf( "Depth is not correct..." );
-			DebugBreak();
-		}
-		// -- end check depth
-		if( curNodeLeft.index && curNodeRight.index )
-			if( curNodeLeft.disk->time > curNodeRight.disk->time ) {
-				lprintf( "tree is out of order.  %d", right->index );
-				DumpTimelineTree( vol, 0 DBG_SRC );
-				DebugBreak();
-			}
-		if( curNodeLeft.index ) {
-			if( curNodeLeft.disk->time > right->disk->time ) {
-				lprintf( "tree is out of order to left.  %d", right->index );
-				DumpTimelineTree( vol, 0 DBG_SRC );
-				DebugBreak();
-			}
-			dropRawTimeEntry( vol, curNodeLeft.diskCache GRTENoLog DBG_RELAY );
-		}
-		if( curNodeRight.index ) {
-			if( curNodeRight.disk->time < right->disk->time ) {
-				lprintf( "tree is out of order to right.  %d", right->index );
-				DumpTimelineTree( vol, 0 DBG_SRC );
-				DebugBreak();
-			}
-			dropRawTimeEntry( vol, curNodeRight.diskCache GRTENoLog DBG_RELAY );
-		}
-	}
-	else
-		right->index = 0;
-	return n + 1;
-}
-//---------------------------------------------------------------------------
-static void ValidateTimelineTree( struct sack_vfs_os_volume* vol DBG_PASS ) {
-	enum block_cache_entries cache = BC( TIMELINE_RO );
-	// (struct storageTimeline *)vfs_os_BSEEK( vol, FIRST_TIMELINE_BLOCK, &cache );
-	struct storageTimeline* timeline = vol->timeline;
-	SETFLAG( vol->seglock, cache );
-	struct memoryTimelineNode curNode;
-	struct memoryTimelineNode curNodeLeft;
-	struct memoryTimelineNode curNodeRight;
-	int nodeCount;
-#if defined( DEBUG_DELETE_LAST ) && defined( DEBUG_VALIDATE_TREE )
-	checkRoot( vol );
-#endif
-	{
-		if( !timeline->header.srootNode.ref.index ) {
-			return;
-		}
-		reloadTimeEntry( &curNode, vol
-			, timeline->header.srootNode.ref.index VTReadOnly GRTENoLog  DBG_RELAY );
-	}
-	nodeCount = ValidateTimelineTreeWork( vol, 0, &curNode, &curNodeLeft, &curNodeRight, timeline->header.srootNode.ref.index DBG_RELAY );
-	if( nodeCount != nodes ) {
-		lprintf( "The count of nodes in the tree and those that are free is differnt." );
-		DebugBreak();
-	}
-	if( curNodeLeft.index )
-		dropRawTimeEntry( vol, curNodeLeft.diskCache GRTENoLog DBG_RELAY );
-	if( curNodeRight.index )
-		dropRawTimeEntry( vol, curNodeRight.diskCache GRTENoLog DBG_RELAY );
-	{
-		BLOCKINDEX freeblock;
-		int count = 0;
-		if( freeblock = timeline->header.first_free_entry.ref.index ) {
-			while( freeblock ) {
-				dropRawTimeEntry( vol, curNode.diskCache GRTENoLog DBG_RELAY );
-				reloadTimeEntry( &curNode, vol
-					, freeblock VTReadOnly GRTENoLog  DBG_RELAY );
-				freeblock = curNode.disk->sgreater.ref.index;
-				count++;
-			}
-		}
-	}
-	dropRawTimeEntry( vol, curNode.diskCache GRTENoLog DBG_RELAY );
-}
-#endif
 //-----------------------------------------------------------------------------------
 // Timeline Support Functions
 //-----------------------------------------------------------------------------------
@@ -63632,12 +63330,12 @@ void reloadDirectoryEntry( struct sack_vfs_os_volume* vol, struct memoryTimeline
 	decoded_dirent->mask = NULL;
 	decoded_dirent->pds_directories = NULL;
 	decoded_dirent->filesize = (size_t)( dirent->filesize );
-	if( time->disk->prior.raw ) {
+	if( time->disk->priorData ) {
 		enum block_cache_entries cache;
-		struct storageTimelineNode* prior = getRawTimeEntry( vol, time->disk->prior.raw, &cache GRTENoLog DBG_SRC );
-		while( prior->prior.raw ) {
+		struct storageTimelineNode* prior = getRawTimeEntry( vol, time->disk->priorData, &cache GRTENoLog DBG_SRC );
+		while( prior->priorData ) {
 			dropRawTimeEntry( vol, cache GRTENoLog DBG_RELAY );
-			prior = getRawTimeEntry( vol, prior->prior.raw, &cache GRTENoLog DBG_RELAY );
+			prior = getRawTimeEntry( vol, prior->priorData, &cache GRTENoLog DBG_RELAY );
 		}
 		decoded_dirent->ctime = prior->time;
 		dropRawTimeEntry( vol, cache GRTENoLog DBG_RELAY );
@@ -63708,965 +63406,6 @@ void reloadDirectoryEntry( struct sack_vfs_os_volume* vol, struct memoryTimeline
 	//time->dirent_fpi
 }
 //---------------------------------------------------------------------------
-static void _os_AVL_RotateToRight(
-	struct sack_vfs_os_volume* vol,
-	struct storageTimelineNode* node,
-	BLOCKINDEX nodeIdx,
-	struct storageTimelineNode* left_,
-	BLOCKINDEX leftIdx
-	DBG_PASS
-)
-{
-	{
-		enum block_cache_entries meCache;
-		TIMELINE_BLOCK_TYPE* ptr = getRawTimePointer( vol, node->me_fpi, &meCache );
-		ptr[0] = node->slesser;
- // this could be NULL
-		if( node->slesser.raw = left_->sgreater.raw )
-		{
-			struct storageTimelineNode* x;
-			enum block_cache_entries cache;
-			x = getRawTimeEntry( vol, node->slesser.ref.index, &cache GRTELog DBG_RELAY );
-			x->me_fpi = sane_offsetof( struct storageTimeline, entries[nodeIdx - 1].slesser );
-#ifdef DEBUG_DELETE_BALANCE
-			lprintf( "x fpi = nodeIdx" );
-#endif
-			SMUDGECACHE( vol, cache );
-			dropRawTimeEntry( vol, cache GRTELog DBG_RELAY );
-		}
-#ifdef DEBUG_DELETE_BALANCE
-		lprintf( "left fpi = node fpi  %d  %d", nodeIdx, node->me_fpi );
-#endif
-		left_->me_fpi = node->me_fpi;
-		left_->sgreater.ref.index = nodeIdx;
-#ifdef DEBUG_DELETE_BALANCE
-		lprintf( "node-> fpi = nodeIdx %d %d", nodeIdx, leftIdx );
-#endif
-		node->me_fpi = sane_offsetof( struct storageTimeline, entries[leftIdx - 1].sgreater );
-		/* Update heights */
-		{
-			int leftDepth, rightDepth;
-			leftDepth = (int)node->slesser.ref.depth;
-			rightDepth = (int)node->sgreater.ref.depth;
-			if( leftDepth > rightDepth )
-				left_->sgreater.ref.depth = leftDepth + 1;
-			else
-				left_->sgreater.ref.depth = rightDepth + 1;
-			leftDepth = (int)left_->slesser.ref.depth;
-			rightDepth = (int)left_->sgreater.ref.depth;
-			if( leftDepth > rightDepth ) {
-				ptr[0].ref.depth = leftDepth + 1;
-			}
-			else {
-				ptr[0].ref.depth = rightDepth + 1;
-			}
-		}
-		SMUDGECACHE( vol, meCache );
-	}
-	//updateTimeEntry( node, vol DBG_RELAY );
-	//updateTimeEntry( left_, vol DBG_RELAY );
-}
-//---------------------------------------------------------------------------
-static void _os_AVL_RotateToLeft(
-	struct sack_vfs_os_volume* vol,
-	struct storageTimelineNode* node,
-	BLOCKINDEX nodeIdx,
-	struct storageTimelineNode* right_,
-	BLOCKINDEX leftIdx
-	DBG_PASS
-)
-{
-	{
-		enum block_cache_entries meCache;
-		TIMELINE_BLOCK_TYPE* ptr = getRawTimePointer( vol, node->me_fpi, &meCache );
-		ptr[0] = node->sgreater;
-		SMUDGECACHE( vol, meCache );
-		if( node->sgreater.raw = right_->slesser.raw )
-		{
-			struct storageTimelineNode *x;
-			enum block_cache_entries cache;
-			x = getRawTimeEntry( vol, node->sgreater.ref.index, &cache GRTELog DBG_RELAY );
-			x->me_fpi = sane_offsetof( struct storageTimeline, entries[nodeIdx - 1].sgreater );
-			SMUDGECACHE( vol, cache );
-			dropRawTimeEntry( vol, cache GRTELog DBG_RELAY );
-		}
-		right_->me_fpi = node->me_fpi;
-		right_->slesser.ref.index = nodeIdx;
-		node->me_fpi = sane_offsetof( struct storageTimeline, entries[leftIdx - 1].slesser );
-		/*  Update heights */
-		{
-			int leftDepth, rightDepth;
-			leftDepth = (int)node->slesser.ref.depth;
-			rightDepth = (int)node->sgreater.ref.depth;
-			if( leftDepth > rightDepth )
-				right_->slesser.ref.depth = leftDepth + 1;
-			else
-				right_->slesser.ref.depth = rightDepth + 1;
-			leftDepth = (int)right_->slesser.ref.depth;
-			rightDepth = (int)right_->sgreater.ref.depth;
-			if( leftDepth > rightDepth ) {
-				ptr[0].ref.depth = leftDepth + 1;
-			}
-			else {
-				ptr[0].ref.depth = rightDepth + 1;
-			}
-		}
-		SMUDGECACHE( vol, meCache );
-	}
-	//updateTimeEntry( node, vol );
-	//updateTimeEntry( right_, vol );
-}
-//---------------------------------------------------------------------------
-static void _os_AVLbalancer( struct sack_vfs_os_volume* vol, BLOCKINDEX index DBG_PASS ) {
-	struct storageTimelineNode* _x = NULL;
-	BLOCKINDEX idx_x;
-	struct storageTimelineNode* _y = NULL;
-	BLOCKINDEX idx_y = 0;
-	struct storageTimelineNode* _z = NULL;
-	struct storageTimelineNode* tmp;
-	enum block_cache_entries cache_z, cache_x, cache_y = BC(ZERO);
-	enum block_cache_entries cache_tmp;
-	BLOCKINDEX curIndex = index;
-	int leftDepth;
-	int rightDepth;
-	LOGICAL balanced = FALSE;
-	_z = getRawTimeEntry( vol, curIndex, &cache_z GRTELog DBG_RELAY );
-	{
-		while( _z ) {
-			int doBalance;
-			rightDepth = (int)_z->sgreater.ref.depth;
-			leftDepth = (int)_z->slesser.ref.depth;
-			if( _z->me_fpi & ~0x3f ) {
-				tmp = getRawTimeEntry( vol, ( ( _z->me_fpi - sizeof( struct timelineHeader ) ) / sizeof( struct storageTimelineNode ) ) + 1, & cache_tmp GRTELog DBG_RELAY );
-			}
-			else tmp = NULL;
-			if( tmp ) {
-#ifdef DEBUG_TIMELINE_AVL
-		//		lprintf( "WR (P)left/right depths: %d  %d   %d    %d  %d", (int)tmp->index, (int)leftDepth, (int)rightDepth, (int)tmp->sgreater.ref.index, (int)tmp->slesser.ref.index );
-				lprintf( "WR left/right depths: %d   %d   %d    %d  %d", (int)curIndex, (int)leftDepth, (int)rightDepth, (int)_z->sgreater.ref.index, (int)_z->slesser.ref.index );
-#endif
-				if( leftDepth > rightDepth ) {
-					if( tmp->sgreater.ref.index == curIndex ) {
-						if( (1 + leftDepth) == tmp->sgreater.ref.depth ) {
-							//if( zz )
-							//	lprintf( "Stopped checking: %d %d %d", height, leftDepth, rightDepth );
-							dropRawTimeEntry( vol, cache_tmp GRTELog DBG_RELAY );
-							break;
-						}
-						tmp->sgreater.ref.depth = 1 + leftDepth;
-					}
-					else
-#ifdef _DEBUG
-						if( tmp->slesser.ref.index == curIndex )
-#endif
-						{
-							if( (1 + leftDepth) == tmp->slesser.ref.depth ) {
-								//if( zz )
-								//	lprintf( "Stopped checking: %d %d %d", height, leftDepth, rightDepth );
-								dropRawTimeEntry( vol, cache_tmp GRTELog DBG_RELAY );
-								break;
-							}
-							tmp->slesser.ref.depth = 1 + leftDepth;
-						}
-#ifdef _DEBUG
-						else
-// Should be one or the other...
-							DebugBreak();
-#endif
-				}
-				else {
-					if( tmp->sgreater.ref.index == curIndex ) {
-						if( (1 + rightDepth) == tmp->sgreater.ref.depth ) {
-							//if(zz)
-							//	lprintf( "Stopped checking: %d %d %d", height, leftDepth, rightDepth );
-							dropRawTimeEntry( vol, cache_tmp GRTELog DBG_RELAY );
-							break;
-						}
-						tmp->sgreater.ref.depth = 1 + rightDepth;
-					}
-					else
-#ifdef _DEBUG
-						if( tmp->slesser.ref.index == curIndex )
-#endif
-						{
-							if( (1 + rightDepth) == tmp->slesser.ref.depth ) {
-								//if(zz)
-								//	lprintf( "Stopped checking: %d %d %d", height, leftDepth, rightDepth );
-								dropRawTimeEntry( vol, cache_tmp GRTELog DBG_RELAY );
-								break;
-							}
-							tmp->slesser.ref.depth = 1 + rightDepth;
-						}
-#ifdef _DEBUG
-						else
-							DebugBreak();
-#endif
-				}
-#ifdef DEBUG_TIMELINE_AVL
-				lprintf( "WR updated left/right depths: %d      %d  %d", (int)idx_y, (int)tmp->sgreater.ref.depth, (int)tmp->slesser.ref.depth );
-#endif
-				SMUDGECACHE( vol, cache_tmp );
-				dropRawTimeEntry( vol, cache_tmp GRTELog DBG_RELAY );
-			}
-			if( leftDepth > rightDepth )
-				doBalance = ((leftDepth - rightDepth) > 1);
-			else
-				doBalance = ((rightDepth - leftDepth) > 1);
-			if( doBalance ) {
-				if( _x ) {
-					if( idx_x == _y->slesser.ref.index ) {
-						if( idx_y == _z->slesser.ref.index ) {
-							// left/left
-							_os_AVL_RotateToRight( vol, _z, curIndex, _y, idx_y DBG_RELAY );
-							SMUDGECACHE( vol, cache_y );
-							SMUDGECACHE( vol, cache_z );
-#ifdef DEBUG_DELETE_BALANCE
-							lprintf( " ------------- AFTER AVL BALANCER PHASE R1 ---------------- " );
-							DumpTimelineTree( vol, TRUE DBG_RELAY );
-#endif
-#ifdef DEBUG_VALIDATE_TREE_ADD
-							//ValidateTimelineTree( vol DBG_SRC );
-#endif
-						}
-						else {
-							//left/rightDepth
-							_os_AVL_RotateToRight( vol, _y, idx_y, _x, idx_x DBG_RELAY );
-#ifdef DEBUG_DELETE_BALANCE
-							lprintf( " ------------- AFTER AVL BALANCER PHASE R2 ---------------- " );
-							DumpTimelineTree( vol, TRUE DBG_RELAY );
-#endif
-#ifdef DEBUG_VALIDATE_TREE_ADD
-							//ValidateTimelineTree( vol DBG_SRC );
-#endif
-							_os_AVL_RotateToLeft( vol, _z, curIndex, _y, idx_y DBG_RELAY );
-#ifdef DEBUG_DELETE_BALANCE
-							lprintf( " ------------- AFTER AVL BALANCER PHASE L1 ---------------- " );
-							DumpTimelineTree( vol, TRUE DBG_RELAY );
-#endif
-							SMUDGECACHE( vol, cache_z );
-							SMUDGECACHE( vol, cache_y );
-							SMUDGECACHE( vol, cache_x );
-#ifdef DEBUG_VALIDATE_TREE_ADD
-							ValidateTimelineTree( vol DBG_SRC );
-#endif
-						}
-					}
-					else {
-						if( idx_y == _z->slesser.ref.index ) {
-							_os_AVL_RotateToLeft( vol, _y, idx_y, _x, idx_x DBG_RELAY );
-#ifdef DEBUG_DELETE_BALANCE
-							lprintf( " ------------- AFTER AVL BALANCER PHASE L2 ---------------- " );
-#endif
-							SMUDGECACHE( vol, cache_y );
-							SMUDGECACHE( vol, cache_x );
-#ifdef DEBUG_VALIDATE_TREE_ADD
-							//ValidateTimelineTree( vol DBG_SRC );
-#endif
-							_os_AVL_RotateToRight( vol, _z, curIndex, _y, idx_y DBG_RELAY );
-#ifdef DEBUG_DELETE_BALANCE
-							lprintf( " ------------- AFTER AVL BALANCER PHASE R3 ---------------- " );
-							DumpTimelineTree( vol, TRUE DBG_RELAY );
-#endif
-							SMUDGECACHE( vol, cache_z );
-							SMUDGECACHE( vol, cache_y );
-#ifdef DEBUG_VALIDATE_TREE_ADD
-							//ValidateTimelineTree( vol DBG_SRC );
-#endif
-							// rightDepth.left
-						}
-						else {
-							//rightDepth/rightDepth
-							_os_AVL_RotateToLeft( vol, _z, curIndex, _y, idx_y DBG_RELAY );
-#ifdef DEBUG_DELETE_BALANCE
-							lprintf( " ------------- AFTER AVL BALANCER PHASE L3 ---------------- " );
-							DumpTimelineTree( vol, TRUE DBG_RELAY );
-#endif
-							SMUDGECACHE( vol, cache_y );
-							SMUDGECACHE( vol, cache_z );
-#ifdef DEBUG_VALIDATE_TREE_ADD
-							ValidateTimelineTree( vol DBG_SRC );
-#endif
-						}
-					}
-#ifdef DEBUG_TIMELINE_AVL
-					lprintf( "WR Balanced, should redo this one... %d %d", (int)_z->slesser.ref.index, _z->sgreater.ref.index );
-#endif
-					// reset to bottom of tree so we get a proper tail going further up
-					// x and y and z can reverse order in the above.
-					dropRawTimeEntry( vol, cache_z GRTELog DBG_RELAY );
-					dropRawTimeEntry( vol, cache_y GRTELog DBG_RELAY );
-					_z = _x;
-					cache_z = cache_x;
-					_y = _x = NULL;
-				}
-				else {
-					//lprintf( "Not deep enough for balancing." );
-				}
-			}
-			if( _x )
-				dropRawTimeEntry( vol, cache_x GRTELog DBG_RELAY );
-			cache_x = cache_y;
-			idx_x = idx_y;
-			_x = _y;
-			cache_y = cache_z;
-			idx_y = curIndex;
-			_y = _z;
-			if( _z->me_fpi >= sizeof( struct timelineHeader ) ) {
-				curIndex = ( ( _z->me_fpi - sizeof( struct timelineHeader ) ) / sizeof( struct storageTimelineNode ) ) + 1;
-				_z = getRawTimeEntry( vol, curIndex, &cache_z GRTELog DBG_RELAY );
-			} else {
-				_z = NULL;
-			}
-		}
-		if( _x )
-			dropRawTimeEntry( vol, cache_x GRTELog DBG_RELAY );
-		if( _y )
-			dropRawTimeEntry( vol, cache_y GRTELog DBG_RELAY );
-		if( _z )
-			dropRawTimeEntry( vol, cache_z GRTELog DBG_RELAY );
-	}
-}
-//---------------------------------------------------------------------------
-static int hangTimelineNode( struct sack_vfs_os_volume* vol
-	, TIMELINE_BLOCK_TYPE index
-	, LOGICAL unused
-	, struct storageTimeline* timeline
-	, struct memoryTimelineNode* timelineNode
-	DBG_PASS
-)
-{
-	struct storageTimelineNode *pCurNode;
-	uint64_t curindex;
-	enum block_cache_entries cacheCur;
-		{
-			if( !timeline->header.srootNode.ref.index ) {
-				timeline->header.srootNode.ref.index = index.ref.index ;
-				timeline->header.srootNode.ref.depth = 0 ;
-				timelineNode->disk->me_fpi = offsetof( struct timelineHeader, srootNode );
-				SMUDGECACHE( vol, vol->timelineCache );
-				return 1;
-			}
-			pCurNode = getRawTimeEntry( vol, curindex = timeline->header.srootNode.ref.index, &cacheCur GRTELog DBG_SRC );
-		}
-	while( 1 ) {
-// = root->Compare( node->key, check->key );
-		int dir;
-		{
-			if( pCurNode->time > timelineNode->disk->time )
-				dir = -1;
-			else if( pCurNode->time < timelineNode->disk->time )
-				dir = 1;
-			else
-				dir = 0;
-		}
-#ifdef INVERSE_TEST
-		dir = -dir;
-#endif
-		uint64_t nextIndex;
-		//dir = -dir; // test opposite rotation.
-		if( dir < 0 ) {
-			if( nextIndex = pCurNode->slesser.ref.index ) {
-				dropRawTimeEntry( vol, cacheCur GRTELog DBG_SRC );
-				pCurNode = getRawTimeEntry( vol, curindex = nextIndex, &cacheCur GRTELog DBG_SRC );
-			}
-			else {
-				pCurNode->slesser.ref.index = index.ref.index;
-				pCurNode->slesser.ref.depth = 0;
-				timelineNode->disk->me_fpi = sane_offsetof( struct storageTimeline, entries[curindex - 1].slesser );
-				SMUDGECACHE( vol, cacheCur );
-				//updateTimeEntry( curNode_, vol DBG_SRC );
-				dropRawTimeEntry( vol, cacheCur GRTELog DBG_SRC );
-				break;
-			}
-		}
-		else if( dir > 0 )
-			if( nextIndex = pCurNode->sgreater.ref.index ) {
-				dropRawTimeEntry( vol, cacheCur GRTELog DBG_SRC );
-				pCurNode = getRawTimeEntry( vol, curindex = nextIndex, &cacheCur GRTELog DBG_SRC );
-			}
-			else {
-				pCurNode->sgreater.ref.index = index.ref.index;
-				pCurNode->sgreater.ref.depth = 0;
-				timelineNode->disk->me_fpi = sane_offsetof( struct storageTimeline, entries[curindex-1].sgreater );
-				SMUDGECACHE( vol, cacheCur );
-				dropRawTimeEntry( vol, cacheCur GRTELog DBG_SRC );
-				break;
-			}
-		else {
-			// allow duplicates; but link in as a near node, either left
-			// or right... depending on the depth.
-			int leftdepth = 0, rightdepth = 0;
-			uint64_t nextLesserIndex, nextGreaterIndex;
-			if( nextLesserIndex = pCurNode->slesser.ref.index )
-				leftdepth = (int)( pCurNode->slesser.ref.depth);
-			if( nextGreaterIndex = pCurNode->sgreater.ref.index )
-				rightdepth = (int)( pCurNode->sgreater.ref.depth);
-			if( leftdepth < rightdepth ) {
-				if( nextLesserIndex ) {
-					dropRawTimeEntry( vol, cacheCur GRTELog DBG_SRC );
-					pCurNode = getRawTimeEntry( vol, curindex = nextLesserIndex, &cacheCur GRTELog DBG_SRC );
-				}
-				else {
-					{
-						pCurNode->slesser.ref.index = index.ref.index;
-						pCurNode->slesser.ref.depth = 0;
-					}
-					timelineNode->disk->me_fpi = sane_offsetof( struct storageTimeline, entries[curindex - 1].slesser );
-					SMUDGECACHE( vol, cacheCur );
-					dropRawTimeEntry( vol, cacheCur GRTELog DBG_SRC );
-					break;
-				}
-			}
-			else {
-				if( nextGreaterIndex ) {
-					dropRawTimeEntry( vol, cacheCur GRTELog DBG_SRC );
-					pCurNode = getRawTimeEntry( vol, curindex = nextGreaterIndex, &cacheCur GRTELog DBG_SRC );
-				}
-				else {
-					{
-						pCurNode->sgreater.ref.index = index.ref.index;
-						pCurNode->sgreater.ref.depth = 0;
-					}
-					timelineNode->disk->me_fpi = sane_offsetof( struct storageTimeline, entries[curindex-1].sgreater );
-					SMUDGECACHE( vol, cacheCur );
-					dropRawTimeEntry( vol, cacheCur GRTELog DBG_SRC );
-					break;
-				}
-			}
-		}
-	}
-#ifdef DEBUG_DELETE_BALANCE
-	SMUDGECACHE( vol, timelineNode->diskCache );
-	lprintf( " ------------- BEFORE AVL BALANCER ---------------- " );
-	DumpTimelineTree( vol, TRUE  DBG_RELAY );
-#endif
-#ifdef DEBUG_VALIDATE_TREE_ADD
-	SMUDGECACHE( vol, timelineNode->diskCache );
-	ValidateTimelineTree( vol DBG_SRC );
-#endif
-	_os_AVLbalancer( vol, index.ref.index DBG_RELAY );
-#ifdef DEBUG_VALIDATE_TREE_ADD
-	ValidateTimelineTree( vol DBG_SRC );
-#endif
-	return 1;
-}
-static void deleteTimelineIndexWork( struct sack_vfs_os_volume* vol, BLOCKINDEX index, struct storageTimelineNode* time, enum block_cache_entries cache DBG_PASS ) {
-#define DBG_DELETE_ DBG_SRC
-	enum block_cache_entries cache_left = BC( TIMELINE );
-	enum block_cache_entries cache_right = BC( TIMELINE );
-	enum block_cache_entries cache_parent = BC( TIMELINE );
-	enum block_cache_entries meCache;
-	enum block_cache_entries cacheTmp = BC(ZERO);
-	{
-		//enum block_cache_entries bottomCache = BC( ZERO );
-		//struct storageTimelineNode* bottom;
-		BLOCKINDEX bottom_node;
-		struct storageTimelineNode* least = NULL;
-		BLOCKINDEX leastIndex;
-		BLOCKINDEX leastIndex_ = 0;
-		struct storageTimelineNode* tmp;
-		PDATALIST pdlVisited = CreateDataList( sizeof( BLOCKINDEX ) );
-		TIMELINE_BLOCK_TYPE* ptr = getRawTimePointer( vol, time->me_fpi, &meCache );
-#ifdef DEBUG_DELETE_LAST
-		VarTextEmpty( vol->pvtDeleteBuffer );
-		vtprintf( vol->pvtDeleteBuffer, "Delete %d\n", index );
-		{
-			if( time->me_fpi > sizeof( struct timelineHeader) )
-				LogTimelineTree( vol->pvtDeleteBuffer, vol, convertMeToParentIndex( time->me_fpi ) DBG_SRC );
-			else
-				LogTimelineTree( vol->pvtDeleteBuffer, vol, index DBG_SRC );
-		}
-		checkRoot( vol );
-#endif
-		//time = getRawTimeEntry( vol, index, &cache );
-#ifdef DEBUG_DELETE_BALANCE
-		lprintf( "delete index %d", index );
-#endif
-		if( !time->slesser.ref.index ) {
-			if( time->sgreater.ref.index ) {
-				enum block_cache_entries cache;
- // ref.index type is larger than index in some configurations; but won't exceed those bounds
-				struct storageTimelineNode *greater = getRawTimeEntry( vol, leastIndex = (BLOCKINDEX)time->sgreater.ref.index, &cache GRTELog DBG_DELETE_ );
- // my depth to my greater is correct to copy anyway.
-				ptr[0] = time->sgreater;
-				greater->me_fpi = time->me_fpi;
-				SMUDGECACHE( vol, meCache );
-				SMUDGECACHE( vol, cache );
-#ifdef DEBUG_DELETE_LAST
-				vtprintf( vol->pvtDeleteBuffer, "Only Right %d\n", time->sgreater.ref.index );
-#endif
-#ifdef DEBUG_DELETE_BALANCE
-				lprintf( "had only greater" );
-#endif
-				bottom_node = leastIndex;
-				dropRawTimeEntry( vol, cache GRTELog DBG_DELETE_ );
-			} else {
-#ifdef DEBUG_DELETE_LAST
-				vtprintf( vol->pvtDeleteBuffer, "No Children\n" );
-#endif
-				ptr[0].raw = timelineBlockIndexNull;
-				SMUDGECACHE( vol, meCache );
-				// no greater or lesser...
-				bottom_node
-					= leastIndex
- // least is going to move; so save the one above that one...
-					= convertMeToParentIndex( time->me_fpi );
-#ifdef DEBUG_DELETE_BALANCE
-				lprintf( "Leaf node; no left or right" );
-#endif
-			}
-		} else if( !time->sgreater.ref.index ) {
-			enum block_cache_entries cache;
-			struct storageTimelineNode* lesser = getRawTimeEntry( vol, leastIndex = (BLOCKINDEX)time->slesser.ref.index, &cache  GRTELog DBG_DELETE_ );
-			ptr[0].raw = time->slesser.raw;
-			SMUDGECACHE( vol, meCache );
-			lesser->me_fpi = time->me_fpi;
-			bottom_node = leastIndex;
-			SMUDGECACHE( vol, cache );
-			dropRawTimeEntry( vol, cache GRTELog DBG_DELETE_ );
-#ifdef DEBUG_DELETE_LAST
-			vtprintf( vol->pvtDeleteBuffer, "Only Left %d\n", time->slesser.ref.index );
-#endif
-#ifdef DEBUG_DELETE_BALANCE
-			lprintf( "had only lesser" );
-#endif
-		} else {
-#ifdef DEBUG_DELETE_BALANCE
-			lprintf( "has greater and lesser %d %d", time->slesser.ref.depth, time->sgreater.ref.depth );
-#endif
-#ifdef DEBUG_DELETE_LAST
-			vtprintf( vol->pvtDeleteBuffer, "both left and right %d  %d\n", time->slesser.ref.index, time->sgreater.ref.index );
-#endif
-			if( time->slesser.ref.depth > time->sgreater.ref.depth ) {
-				PDATALIST pdlVisitedLesser = CreateDataList( sizeof( BLOCKINDEX ) );
-				enum block_cache_entries lcache;
-				enum block_cache_entries leastCache;
-				//bottom = time;
-				//bottomCache = BC( ZERO );
-#ifdef DEBUG_DELETE_LAST
-				vtprintf( vol->pvtDeleteBuffer, "left is deeper %d %d\n", time->slesser.ref.depth, time->sgreater.ref.depth );
-#endif
-				least = getRawTimeEntry( vol, leastIndex = (BLOCKINDEX)time->slesser.ref.index, &leastCache GRTELog DBG_DELETE_ );
-#ifdef DEBUG_DELETE_BALANCE
-				lprintf( "Stepped to least %d", leastIndex );
-#endif
-				while( least->sgreater.raw ) {
-					{
-						INDEX idx;
-						uint64_t* c;
-						DATA_FORALL( pdlVisited, idx, uint64_t*, c ) {
-							if( c[0] == least->me_fpi ) {
-								lprintf( "going up the tree is broken now." );
-								DebugBreak();
-							}
-						}
-					}
-					AddDataItem( &pdlVisitedLesser, &least->me_fpi );
-					dropRawTimeEntry( vol, leastCache GRTELog DBG_DELETE_ );
- // least is going to move; so save the one above that one...
-					leastIndex_ = leastIndex;
-					least = getRawTimeEntry( vol, leastIndex = least->sgreater.ref.index, &leastCache GRTELog DBG_DELETE_ );
-#ifdef DEBUG_DELETE_LAST
-					vtprintf( vol->pvtDeleteBuffer, "move to lesser's greater %d\n", leastIndex );
-#endif
-#ifdef DEBUG_DELETE_BALANCE
-					lprintf( "Stepped to least1 %d", leastIndex );
-#endif
-				}
-				bottom_node = leastIndex_;
-				DeleteDataList( &pdlVisitedLesser );
-				TIMELINE_BLOCK_TYPE* ptrLeast = getRawTimePointer( vol, least->me_fpi, &lcache );
-				if( least->slesser.raw ) {
-					enum block_cache_entries cache;
-					struct storageTimelineNode* leastLesser = getRawTimeEntry( vol, bottom_node = (BLOCKINDEX)least->slesser.ref.index, &cache GRTELog DBG_DELETE_ );
-#ifdef DEBUG_DELETE_BALANCE
-					lprintf( "Least has a lesser node (off of greatest on least) %d", least->slesser.ref.index );
-#endif
-					leastLesser->me_fpi = least->me_fpi;
-					ptrLeast[0].raw = least->slesser.raw;
- // now no longer points to a thing.
-					least->slesser.raw = 0;
-					SMUDGECACHE( vol, cache );
-#ifdef DEBUG_DELETE_LAST
-					vtprintf( vol->pvtDeleteBuffer, "lesser's greatest has a lesser %d\n", least->slesser.ref.index );
-#endif
-					dropRawTimeEntry( vol, cache GRTELog DBG_DELETE_ );
-				} else {
-#ifdef DEBUG_DELETE_BALANCE
-					lprintf( "Fill parent of least with null" );
-#endif
-#ifdef DEBUG_DELETE_LAST
-					vtprintf( vol->pvtDeleteBuffer, "lesser's greatest is the bottom\n", least->slesser.ref.index );
-#endif
-					ptrLeast[0].raw = timelineBlockIndexNull;
-					// also the previous parent is -1 depth.
-				}
-				least->me_fpi = time->me_fpi;
-				SMUDGECACHE( vol, lcache );
-				SMUDGECACHE( vol, leastCache );
-				dropRawTimeEntry( vol, leastCache GRTELog DBG_DELETE_ );
-				// bottom contains this reference, and will release later.
-				//dropRawTimeEntry( vol, leastCache GRTELog DBG_DELETE_ );
-			}else {
-				PDATALIST pdlVisitedLesser = CreateDataList( sizeof( BLOCKINDEX ) );
-				enum block_cache_entries cache = BC( ZERO );
-				enum block_cache_entries lcache;
-				least = getRawTimeEntry( vol, leastIndex = (BLOCKINDEX)time->sgreater.ref.index, &cache GRTELog DBG_DELETE_ );
-#ifdef DEBUG_DELETE_LAST
-				vtprintf( vol->pvtDeleteBuffer, "right is deeper %d %d\n", time->slesser.ref.depth, time->sgreater.ref.depth );
-#endif
-#ifdef DEBUG_DELETE_BALANCE
-				lprintf( "Stepped to least2 %d", leastIndex );
-#endif
-				while( least->slesser.raw ) {
-					{
-						INDEX idx;
-						uint64_t* c;
-						DATA_FORALL( pdlVisited, idx, uint64_t*, c ) {
-							if( c[0] == least->me_fpi ) {
-								lprintf( "going up the tree is broken now." );
-								DebugBreak();
-							}
-						}
-					}
-					AddDataItem( &pdlVisitedLesser, &least->me_fpi );
-					dropRawTimeEntry( vol, cache GRTELog DBG_DELETE_ );
-					leastIndex_ = leastIndex;
-					least = getRawTimeEntry( vol, leastIndex = least->slesser.ref.index, &cache GRTELog DBG_DELETE_ );
-#ifdef DEBUG_DELETE_LAST
-					vtprintf( vol->pvtDeleteBuffer, "move to greater's lesser %d\n", leastIndex );
-#endif
-#ifdef DEBUG_DELETE_BALANCE
-					lprintf( "Stepped to least3 %d", leastIndex );
-#endif
-				}
-				DeleteDataList( &pdlVisitedLesser );
-				bottom_node = leastIndex_;
-				TIMELINE_BLOCK_TYPE* ptrLeast = getRawTimePointer( vol, least->me_fpi, &lcache );
-				if( least->sgreater.raw ) {
-					enum block_cache_entries cache;
-					ptrLeast[0].raw = least->sgreater.raw;
-					struct storageTimelineNode* leastGreater = getRawTimeEntry( vol, bottom_node = (BLOCKINDEX)least->sgreater.ref.index, &cache GRTELog DBG_DELETE_ );
-#ifdef DEBUG_DELETE_BALANCE
-					lprintf( "least greater : %d", least->sgreater.ref.index );
-#endif
-					leastGreater->me_fpi = least->me_fpi;
-#ifdef DEBUG_DELETE_LAST
-					vtprintf( vol->pvtDeleteBuffer, "greater's least has a greater %d\n", least->sgreater.ref.index );
-#endif
- // now no longer points to a thing.
-					least->sgreater.raw = 0;
-					SMUDGECACHE( vol, cache );
-					dropRawTimeEntry( vol, cache GRTELog DBG_DELETE_ );
-				} else {
-#ifdef DEBUG_DELETE_BALANCE
-					lprintf( "Fill parent of least with null2" );
-#endif
-#ifdef DEBUG_DELETE_LAST
-					vtprintf( vol->pvtDeleteBuffer, "greater's least is the bottom\n", least->slesser.ref.index );
-#endif
-					ptrLeast[0].raw = timelineBlockIndexNull;
-				}
-				least->me_fpi = time->me_fpi;
-				SMUDGECACHE( vol, lcache );
-				SMUDGECACHE( vol, cache );
-				dropRawTimeEntry( vol, cache GRTELog DBG_DELETE_ );
-			}
-		}
-		if( least ) {
-			int depth = 0;
-#ifdef DEBUG_DELETE_LAST
-			vtprintf( vol->pvtDeleteBuffer, "Moving least node into in-place of deleted node.%d  %d %d\n", (int)ptr[0].ref.index, (int)time->me_fpi, (int)leastIndex );
-#endif
-			ptr[0].ref.index = leastIndex;
-			//least->me_fpi = time->me_fpi;
-			// the old node that pointed to 'the lesser' is being deleted, no need to update him.
-			if( least->slesser.raw = time->slesser.raw ) {
-				enum block_cache_entries cache;
-				struct storageTimelineNode* tmp;
-				tmp = getRawTimeEntry( vol, time->slesser.ref.index, &cache GRTELog DBG_DELETE_ );
-				tmp->me_fpi = sane_offsetof( struct storageTimeline, entries[leastIndex - 1].slesser );
-				if( tmp->sgreater.ref.depth > tmp->slesser.ref.depth )
- // cast smaller... it's only a few bits.
-					depth = (int)tmp->sgreater.ref.depth;
-				else
- // cast smaller... it's only a few bits.
-					depth = (int)tmp->slesser.ref.depth;
-				//if( least->slesser.ref.depth != depth+1 )
-				//	DebugBreak();
-#ifdef DEBUG_DELETE_LAST
-				vtprintf( vol->pvtDeleteBuffer, "least's new lesser is %d  %d %d\n", least->slesser.ref.index, least->slesser.ref.depth, depth + 1 );
-#endif
-				SMUDGECACHE( vol, cache );
-				dropRawTimeEntry( vol, cache GRTELog DBG_DELETE_ );
-			}
-			// the old node that pointed to 'the greater' is being deleted, no need to update him.
-			if( least->sgreater.raw = time->sgreater.raw ) {
-				enum block_cache_entries cache;
-				struct storageTimelineNode* tmp;
-				tmp = getRawTimeEntry( vol, time->sgreater.ref.index, &cache GRTELog DBG_DELETE_ );
-				tmp->me_fpi = sane_offsetof( struct storageTimeline, entries[leastIndex - 1].sgreater );
-				if( tmp->sgreater.ref.depth > tmp->slesser.ref.depth )
- // cast smaller... it's only a few bits.
-					depth = tmp->sgreater.ref.depth;
-				else
- // cast smaller... it's only a few bits.
-					depth = tmp->slesser.ref.depth;
-				//if( least->sgreater.ref.depth != depth + 1 )
-				//	DebugBreak();
-#ifdef DEBUG_DELETE_LAST
-				vtprintf( vol->pvtDeleteBuffer, "least's new greater is %d  %d %d\n", least->sgreater.ref.index, least->sgreater.ref.depth, depth + 1 );
-#endif
-				SMUDGECACHE( vol, cache );
-				dropRawTimeEntry( vol, cache GRTELog DBG_DELETE_ );
-			}
-			//if( least->slesser.ref.depth > least->sgreater.ref.depth )
-			//	ptr[0].ref.depth = least->slesser.ref.depth + 1;
-			//else
-			//	ptr[0].ref.depth = least->sgreater.ref.depth + 1;
- // mark that the least node was updated.
-			SMUDGECACHE( vol, cache );
-			SMUDGECACHE( vol, meCache );
-#ifdef DEBUG_DELETE_BALANCE
-			lprintf( " ------------- DELETE TIME ENTRY move least node to node? ---------------- " );
-			DumpTimelineTree( vol, TRUE  DBG_DELETE_ );
-#endif
-			//least = NULL;
-		}
-		if( leastIndex_ ) {
-			leastIndex = leastIndex_;
-		}
-		// this is the incoming thing...
-		// I think this was already dropped really(?)
-		{
- // ( node_fpi - sizeof( struct timelineHeader ) ) / sizeof( struct storageTimelineNode ) + 1;
-			uint64_t node_idx;
-			int updating = 1;
-			while( ( node_idx = bottom_node ) ) {
-#if defined( DEBUG_DELETE_CIRCULAR_UP_PATH ) || 1
-				{
-					INDEX idx;
-					uint64_t* c;
-					DATA_FORALL( pdlVisited, idx, uint64_t*, c ) {
-						if( c[0] == node_idx ) {
-							lprintf( "going up the tree is broken now." );
-							DebugBreak();
-						}
-					}
-				}
-				AddDataItem( &pdlVisited, &node_idx );
-#endif
-				tmp = getRawTimeEntry( vol, node_idx, &cacheTmp GRTELog DBG_DELETE_ );
-#ifdef DEBUG_DELETE_LAST
-				vtprintf( vol->pvtDeleteBuffer, "going up the tree %d\n", node_idx );
-				LogTimelineTree( vol->pvtDeleteBuffer, vol, node_idx DBG_SRC );
-#endif
-				bottom_node = convertMeToParentIndex( tmp->me_fpi );
-				//node_fpi = tmp->me_fpi & ~0x3f;
-				//if( updating )
-				{
-					if( tmp->slesser.raw ) {
-						if( tmp->sgreater.raw ) {
-							int tmp1, tmp2;
- // cast smaller... it's only a few bits.
-							if( ( tmp1 = (int)tmp->slesser.ref.depth ) > ( tmp2 = (int)tmp->sgreater.ref.depth ) ) {
-								TIMELINE_BLOCK_TYPE* ptr = getRawTimePointer( vol, tmp->me_fpi, &meCache );
-								if( ptr[0].ref.depth != ( tmp1 + 1 ) ) {
-									vtprintf( vol->pvtDeleteBuffer, "Update parent count to %d on %d", tmp1 + 1, convertMeToParentIndex( tmp->me_fpi ) );
-									ptr[0].ref.depth = tmp1 + 1;
-									SMUDGECACHE( vol, meCache );
-								}
-								else
-									updating = 0;
-								//dropRawTimeEntry( vol, meCache GRTELog DBG_DELETE_ );
-								//backtrack->depth = tmp1 + 1;
-								{
-									if( ( tmp1 - tmp2 ) > 1 ) {
-										int tmp3, tmp4;
-										enum block_cache_entries cache;
-										struct storageTimelineNode* lesser = getRawTimeEntry( vol, tmp->slesser.ref.index, &cache GRTELog DBG_DELETE_ );
- // cast smaller... it's only a few bits.
-										tmp3 = (int)lesser->slesser.ref.depth;
- // cast smaller... it's only a few bits.
-										tmp4 = (int)lesser->sgreater.ref.depth;
-										struct storageTimelineNode* _y;
-										_y = lesser;
-#ifdef DEBUG_DELETE_BALANCE
-										lprintf( "y node is %d", tmp->slesser.ref.index );
-#endif
-										if( tmp3 >= tmp4 ) {
- // truncate to blockindex size
-											_os_AVL_RotateToRight( vol, tmp, (BLOCKINDEX)node_idx, _y, tmp->slesser.ref.index DBG_DELETE_ );
-#ifdef DEBUG_DELETE_BALANCE
-											lprintf( " ------------- DELETE TIME ENTRY after rotate to right ---------------- " );
-											DumpTimelineTree( vol, TRUE DBG_DELETE_ );
-#endif
-											SMUDGECACHE( vol, cacheTmp );
-											SMUDGECACHE( vol, cache );
-#ifdef DEBUG_VALIDATE_TREE
-											//ValidateTimelineTree( vol DBG_SRC );
-#endif
-										}
-										else {
-											struct storageTimelineNode* _x;
-											enum block_cache_entries cache_x;
-											BLOCKINDEX lessGreater = lesser->sgreater.ref.index;
- // truncate to blockindex size
-											_x = getRawTimeEntry( vol, (BLOCKINDEX)lesser->sgreater.ref.index, &cache_x GRTELog DBG_DELETE_ );
-#ifdef DEBUG_DELETE_BALANCE
-											lprintf( " ------------- to TIME ENTRY after rotate to left ---------------- %d %d ", node_idx, lessGreater );
-#endif
- // truncate to blockindex size
-											_os_AVL_RotateToLeft( vol, _y, (BLOCKINDEX)tmp->slesser.ref.index, _x, lessGreater DBG_DELETE_ );
-#ifdef DEBUG_DELETE_BALANCE
-											lprintf( " ------------- DELETE TIME ENTRY after rotate to left ---------------- %d %d ", node_idx, lesser->sgreater.ref.index );
-											DumpTimelineTree( vol, TRUE DBG_DELETE_ );
-#endif
- // truncate to blockindex size
-											_os_AVL_RotateToRight( vol, tmp, (BLOCKINDEX)node_idx, _x, lessGreater DBG_DELETE_ );
-#ifdef DEBUG_DELETE_BALANCE
-											lprintf( " ------------- DELETE TIME ENTRY after rotate to right ---------------- %d %d", node_idx, lessGreater );
-											DumpTimelineTree( vol, TRUE DBG_DELETE_ );
-#endif
-											SMUDGECACHE( vol, cacheTmp );
-											SMUDGECACHE( vol, cache );
-											SMUDGECACHE( vol, cache_x );
-											dropRawTimeEntry( vol, cache_x GRTENoLog DBG_DELETE_ );
-#ifdef DEBUG_VALIDATE_TREE
-											//ValidateTimelineTree( vol DBG_SRC );
-#endif
-										}
-										dropRawTimeEntry( vol, cache GRTENoLog DBG_DELETE_ );
-									}
-								}
-							} else {
-								TIMELINE_BLOCK_TYPE* ptr = getRawTimePointer( vol, tmp->me_fpi, &meCache );
-								if( ptr[0].ref.depth != (tmp2 + 1) ) {
-									vtprintf( vol->pvtDeleteBuffer, "Update parent count to %d on %d", tmp1 + 1, convertMeToParentIndex( tmp->me_fpi ) );
-									ptr[0].ref.depth = tmp2 + 1;
-									SMUDGECACHE( vol, meCache );
-								}
-								else
-									updating = 0;
-								//dropRawTimeEntry( vol, meCache GRTENoLog DBG_DELETE_ );
-								//backtrack->depth = tmp2 + 1;
-								{
-									if( ( tmp2 - tmp1 ) > 1 ) {
-										int tmp3, tmp4;
-										enum block_cache_entries cache;
-										struct storageTimelineNode* lesser = getRawTimeEntry( vol, tmp->sgreater.ref.index, &cache GRTELog DBG_DELETE_ );
- // truncate to int, it's only a few bits anyway
-										tmp3 = (int)lesser->slesser.ref.depth;
- // truncate to int, it's only a few bits anyway
-										tmp4 = (int)lesser->sgreater.ref.depth;
-										struct storageTimelineNode* _y;
-										_y = lesser;
-										if( tmp4 >= tmp3 ) {
- // truncate to blockindex size
-											_os_AVL_RotateToLeft( vol, tmp, (BLOCKINDEX)node_idx, _y, tmp->sgreater.ref.index DBG_DELETE_ );
-#ifdef DEBUG_DELETE_BALANCE
-											lprintf( " ------------- DELETE TIME ENTRY after rotate to left ---------------- " );
-											DumpTimelineTree( vol, TRUE  DBG_DELETE_ );
-#endif
-											SMUDGECACHE( vol, cacheTmp );
-											SMUDGECACHE( vol, cache );
-#ifdef DEBUG_VALIDATE_TREE
-											//ValidateTimelineTree( vol DBG_SRC );
-#endif
-										}
-										else {
-											struct storageTimelineNode *_x;
-											enum block_cache_entries cache_x;
- // truncate to blockindex size
-											BLOCKINDEX greatLesser = (BLOCKINDEX)lesser->slesser.ref.index;
- // truncate to blockindex size
-											_x = getRawTimeEntry( vol, (BLOCKINDEX)lesser->slesser.ref.index, &cache_x GRTELog DBG_DELETE_ );
- // truncate to blockindex size
-											_os_AVL_RotateToRight( vol, _y, (BLOCKINDEX)tmp->sgreater.ref.index, _x, greatLesser DBG_DELETE_ );
-#ifdef DEBUG_DELETE_BALANCE
-											lprintf( " ------------- DELETE TIME ENTRY after rotate to right ---------------- " );
-											DumpTimelineTree( vol, TRUE  DBG_DELETE_ );
-#endif
- // truncate to blockindex size
-											_os_AVL_RotateToLeft( vol, tmp, (BLOCKINDEX)node_idx, _x, greatLesser DBG_DELETE_ );
-#ifdef DEBUG_DELETE_BALANCE
-											lprintf( " ------------- DELETE TIME ENTRY  after rotte to left---------------- " );
-											DumpTimelineTree( vol, TRUE  DBG_DELETE_ );
-#endif
-											SMUDGECACHE( vol, cacheTmp );
-											SMUDGECACHE( vol, cache );
-											SMUDGECACHE( vol, cache_x );
-											dropRawTimeEntry( vol, cache_x GRTENoLog DBG_DELETE_ );
-#ifdef DEBUG_VALIDATE_TREE
-											//ValidateTimelineTree( vol DBG_SRC );
-#endif
-										}
-										dropRawTimeEntry( vol, cache GRTENoLog DBG_DELETE_ );
-									}
-								}
-							}
-						} else {
-							TIMELINE_BLOCK_TYPE* ptr = getRawTimePointer( vol, tmp->me_fpi, &meCache );
-							if( ptr[0].ref.depth != ( tmp->slesser.ref.depth + 1 ) ) {
-								ptr[0].ref.depth = tmp->slesser.ref.depth + 1;
-								SMUDGECACHE( vol, meCache );
-							}
-							else
-								updating = 0;
-#ifdef DEBUG_DELETE_BALANCE
-							lprintf( " ------------- DELETE TIME ENTRY lesser ony ---------------- " );
-							DumpTimelineTree( vol, TRUE  DBG_DELETE_ );
-#endif
-						}
-					} else {
-						if( tmp->sgreater.raw ) {
-							TIMELINE_BLOCK_TYPE* ptr = getRawTimePointer( vol, tmp->me_fpi, &meCache );
-							if( ptr[0].ref.depth != ( tmp->sgreater.ref.depth + 1 ) ) {
-								ptr[0].ref.depth = tmp->sgreater.ref.depth + 1;
-								SMUDGECACHE( vol, meCache );
-							}
-							else
-								updating = 0;
-#ifdef DEBUG_DELETE_BALANCE
-							lprintf( " ------------- DELETE TIME ENTRY greater no lesser? ---------------- " );
-							DumpTimelineTree( vol, TRUE  DBG_DELETE_ );
-#endif
-						} else {
-							TIMELINE_BLOCK_TYPE* ptr = getRawTimePointer( vol, tmp->me_fpi, &meCache );
-							if( ptr[0].ref.depth ) {
- // my parent has me as the node.
-								ptr[0].ref.depth = 1;
-								SMUDGECACHE( vol, meCache );
-							}
-							else
-								updating = 0;
-#ifdef DEBUG_DELETE_BALANCE
-							lprintf( " ------------- DELETE TIME ENTRY no greater no lesser? ---------------- " );
-							DumpTimelineTree( vol, TRUE  DBG_DELETE_ );
-#endif
-						}
-					}
-				}
-				dropRawTimeEntry( vol, cacheTmp GRTENoLog DBG_DELETE_ );
-			}
-#ifdef DEBUG_VALIDATE_TREE
-			ValidateTimelineTree( vol DBG_SRC );
-#endif
-			{
-				struct storageTimeline* timeline = vol->timeline;
-				time->sgreater.ref.index = timeline->header.first_free_entry.ref.index;
-				timeline->header.first_free_entry.ref.index = index;
-				SMUDGECACHE( vol, vol->timelineCache );
-				SMUDGECACHE( vol, cache );
-			}
-		}
-	}
-#ifdef DEBUG_DELETE_BALANCE
-	lprintf( " ------------- DELETE TIME ENTRY ---------------- " );
-	DumpTimelineTree( vol, TRUE  DBG_DELETE_ );
-#endif
-	//node->
-}
 static void deleteTimelineIndex( struct sack_vfs_os_volume* vol, BLOCKINDEX index ) {
 	BLOCKINDEX next;
 	do {
@@ -64675,27 +63414,15 @@ static void deleteTimelineIndex( struct sack_vfs_os_volume* vol, BLOCKINDEX inde
 		//lprintf( "Delete start... %d", index );
 		time = getRawTimeEntry( vol, index, &cache GRTELog DBG_SRC );
  // this type is larger than index in some configurations
-		next = (BLOCKINDEX)time->prior.raw;
+		next = (BLOCKINDEX)time->priorData;
 		nodes--;
-#ifdef DEBUG_DELETE_LAST
-		checkRoot( vol );
-		if( !nodes ) {
-			lprintf( "CurNode: (%s -> %5d  %d <-%d %s has children %d %d  with depths of %d %d"
-				, "*"
-				, (int)time->dirent_fpi
-				, (int)index
-				, time->me_fpi >> 6
-				, ( ( time->me_fpi & 0x3f ) == 0x20 ) ? "L"
-				: ( ( time->me_fpi & 0x3f ) == 0x10 ) ? "R"
-				: "G"
-				, (int)( time->slesser.ref.index )
-				, (int)( time->sgreater.ref.index )
-				, (int)( time->slesser.ref.depth )
-				, (int)( time->sgreater.ref.depth )
-			);
+		{
+			struct storageTimeline* timeline = vol->timeline;
+			time->priorData = timeline->header.first_free_entry.ref.index;
+			timeline->header.first_free_entry.ref.index = index;
+			SMUDGECACHE( vol, vol->timelineCache );
+			SMUDGECACHE( vol, cache );
 		}
-#endif
-		deleteTimelineIndexWork( vol, index, time, cache DBG_SRC );
 		dropRawTimeEntry( vol, cache GRTELog DBG_SRC );
 #ifdef DEBUG_VALIDATE_TREE
 		//ValidateTimelineTree( vol DBG_SRC );
@@ -64722,24 +63449,16 @@ BLOCKINDEX getTimeEntry( struct memoryTimelineNode* time, struct sack_vfs_os_vol
  // ref.index type is larger than index in some configurations; but won't exceed those bounds
 	BLOCKINDEX priorIndex = (BLOCKINDEX)time->index;
 	freeIndex.ref.index = timeline->header.first_free_entry.ref.index;
-	freeIndex.ref.depth = 0;
 	// update next free.
  // ref.index type is larger than index in some configurations; but won't exceed those bounds
 	reloadTimeEntry( time, vol, index = (BLOCKINDEX)freeIndex.ref.index VTReadWrite GRTELog DBG_RELAY );
-	if( time->disk->sgreater.ref.index ) {
-		timeline->header.first_free_entry.ref.index = time->disk->sgreater.ref.index;
-	}
-	else {
-		timeline->header.first_free_entry.ref.index = timeline->header.first_free_entry.ref.index + 1;
-	}
+	timeline->header.first_free_entry.ref.index = timeline->header.first_free_entry.ref.index + 1;
 	SMUDGECACHE( vol, vol->timelineCache );
 	// make sure the new entry is emptied.
-	time->disk->slesser.raw = timelineBlockIndexNull;
-	time->disk->sgreater.raw = timelineBlockIndexNull;
 	time->disk->me_fpi = 0;
 	time->disk->dirent_fpi = 0;
+	time->disk->priorData = 0;
 	time->disk->time = timeGetTime64ns();
-	time->disk->prior.raw = priorIndex;
 	{
 		int tz = GetTimeZone();
 		if( tz < 0 )
@@ -64748,30 +63467,17 @@ BLOCKINDEX getTimeEntry( struct memoryTimelineNode* time, struct sack_vfs_os_vol
 		else
  // -840/15 = -56  720/15 = 48
 			tz = ( ( ( tz / 100 ) * 60 ) + ( tz % 100 ) ) / 15;
+		time->disk->time += (int64_t)tz * 900 * (int64_t)1000000000;
 		time->disk->timeTz = tz;
 	}
 	if( init ) init( psv, time );
 	nodes++;
 	//lprintf( "Add start... %d", freeIndex.ref.index );
-	hangTimelineNode( vol
-		, freeIndex
-		, 0
-		, timeline
-		, time
-		DBG_RELAY );
 #if defined( DEBUG_TIMELINE_DIR_TRACKING) || defined( DEBUG_TIMELINE_AVL )
 	LoG( "Return time entry:%d", time->index );
 #endif
  // don't drop; returning this one.
 	updateTimeEntry( time, vol, FALSE DBG_RELAY );
-#ifdef DEBUG_DELETE_BALANCE
-	lprintf( " ------------- NEW TIME ENTRY ---------------- " );
-	DumpTimelineTree( vol, TRUE  DBG_RELAY );
-#endif
-#ifdef DEBUG_VALIDATE_TREE
-	ValidateTimelineTree( vol DBG_SRC );
-#endif
-	//DumpTimelineTree( vol, FALSE );
 	return index;
 }
 BLOCKINDEX updateTimeEntryTime( struct memoryTimelineNode* time
@@ -64784,7 +63490,7 @@ BLOCKINDEX updateTimeEntryTime( struct memoryTimelineNode* time
 			// gets a new timestamp.
 			enum block_cache_entries inputCache = time ? time->diskCache : BC( ZERO );
 			BLOCKINDEX newIndex = getTimeEntry( time, vol, TRUE, init, psv DBG_RELAY );
-			time->disk->prior.raw = inputIndex;
+			time->disk->priorData = inputIndex;
 			updateTimeEntry( time, vol, FALSE DBG_RELAY );
 			dropRawTimeEntry( vol, inputCache GRTELog DBG_RELAY );
 			return newIndex;
@@ -64802,7 +63508,7 @@ BLOCKINDEX updateTimeEntryTime( struct memoryTimelineNode* time
 			// gets a new timestamp.
 			time_.index = index;
 			BLOCKINDEX newIndex = getTimeEntry( &time_, vol, TRUE, init, psv DBG_RELAY );
-			time_.disk->prior.raw = inputIndex;
+			time_.disk->priorData = inputIndex;
 			time_.disk->dirent_fpi = dirent_fpi;
 			updateTimeEntry( &time_, vol, TRUE DBG_RELAY );
 			return newIndex;
@@ -64812,6 +63518,7 @@ BLOCKINDEX updateTimeEntryTime( struct memoryTimelineNode* time
 		struct memoryTimelineNode time_;
 		if( !time ) time = &time_;
 		reloadTimeEntry( time, vol, index VTReadWrite GRTENoLog DBG_RELAY );
+		time->disk->time = timeGetTime64ns();
 		{
 			int tz = GetTimeZone();
 			if( tz < 0 )
@@ -64820,14 +63527,17 @@ BLOCKINDEX updateTimeEntryTime( struct memoryTimelineNode* time
 			else
  // -840/15 = -56  720/15 = 48
 				tz = ( ( ( tz / 100 ) * 60 ) + ( tz % 100 ) ) / 15;
+			time->disk->time += (int64_t)tz * 900 * (int64_t)1000000000;
 			time->disk->timeTz = tz;
 		}
-		time->disk->time = timeGetTime64ns();
 		updateTimeEntry( time, vol, FALSE DBG_RELAY );
  // index type is larger than index in some configurations; but won't exceed those bounds
 		return (BLOCKINDEX)index;
 	}
 }
+#define priorIndex priorData
+//#include "vfs_os_timeline.c"
+//#define priorIndex prior.ref.index
 struct blockInfo {
 	BLOCKINDEX block;
 	FPI start;
@@ -64973,7 +63683,7 @@ static void _os_SetBlockChain( struct sack_vfs_os_file* file, FPI fpi, BLOCKINDE
 		if( fpi < ( file->blockChain[file->blockChainLength - 1].start + file->blockChain[file->blockChainLength - 1].size ) ) {
 			// when seek happens and initial position is past the end,
 			// seek has to step through the file, for each block to adjust size properly...
-			//lprintf( "Re-setting an internal block??" );
+			//lprintf( "Re-setting an internal block?" );
 			fileBlock = getBlockChainBlock( file, fpi );
 		}
 		else if( fpi == ( file->blockChain[file->blockChainLength - 1].start + file->blockChain[file->blockChainLength - 1].size ) ) {
@@ -65213,7 +63923,7 @@ static void vfs_os_process_rollback( struct sack_vfs_os_volume* vol ) {
 			BLOCKINDEX block;
 			BLOCKINDEX bigSector;
 		};
-		PDATALIST pdlBATs = CreateDataList( sizeof( BLOCKINDEX ) );
+		PDATALIST pdlBATs = CreateDataList( sizeof( struct BATInfo ) );
 		rollback->flags.processing = 1;
 		for( e = 0; e < rollback->nextEntry; e++ ) {
 			rollbackEntryCache = BC( ROLLBACK );
@@ -66056,7 +64766,7 @@ LOGICAL _os_ExpandVolume( struct sack_vfs_os_volume *vol, BLOCKINDEX fromBlock, 
 				created = TRUE;
 			}
 			else
-				vol->file = sack_fopenEx( 0, fname, "wb+", mount );
+				vol->file = sack_fopenEx( 0, fname, "rb+", mount );
 			tmp[0] = '@';
 		}
 		else {
@@ -66221,7 +64931,7 @@ static BLOCKINDEX _os_GetFreeBlock_( struct sack_vfs_os_volume *vol, enum block_
 			//tl->header.crootNode.raw = 0;
 			tl->header.srootNode.raw = 0;
 			tl->header.first_free_entry.ref.index = 1;
-			tl->header.first_free_entry.ref.depth = 0;
+			//tl->header.first_free_entry.ref.depth = 0;
 			// update the clean buffer, so journal writes initialized data.
 			memcpy( vol->usekey_buffer_clean[newcache], vol->usekey_buffer[newcache], TIME_BLOCK_SIZE );
 			break;
@@ -67058,12 +65768,12 @@ static void deleteDirectoryEntryName( struct sack_vfs_os_volume* vol, struct sac
 				reloadTimeEntry( &time, vol, ( dirblock->entries[f].timelineEntry ) VTReadWrite GRTENoLog DBG_SRC );
 				time.disk->dirent_fpi = vol->bufferFPI[nameCache] + sane_offsetof( struct directory_hash_lookup_block, entries[f - 1] );
 				{
-					uint64_t index = time.disk->prior.ref.index;
+					uint64_t index = time.disk->priorIndex;
 					while( index ) {
 						struct memoryTimelineNode time2;
 						reloadTimeEntry( &time2, vol, index GRTENoLog VTReadWrite DBG_SRC );
 						time2.disk->dirent_fpi = time.disk->dirent_fpi;
-						index = time2.disk->prior.ref.index;
+						index = time2.disk->priorIndex;
 						updateTimeEntry( &time2, vol, TRUE DBG_SRC );
 					}
 				}
@@ -67200,13 +65910,13 @@ static void ConvertDirectory( struct sack_vfs_os_volume *vol, const char *leadin
 							// timeline points at new entry.
 							time.disk->dirent_fpi = vol->bufferFPI[newdir_cache] + sane_offsetof( struct directory_hash_lookup_block , entries[nf]);
 							{
-								uint64_t index = time.disk->prior.ref.index;
+								uint64_t index = time.disk->priorIndex;
 								while( index ) {
 									struct memoryTimelineNode time2;
 									reloadTimeEntry( &time2, vol, index VTReadWrite GRTENoLog DBG_SRC );
 									time2.disk->dirent_fpi = time.disk->dirent_fpi;
 									updateTimeEntry( &time2, vol, TRUE DBG_SRC );
-									index = time2.disk->prior.ref.index;
+									index = time2.disk->priorIndex;
 								}
 							}
 #ifdef DEBUG_TIMELINE_DIR_TRACKING
@@ -67267,13 +65977,13 @@ static void ConvertDirectory( struct sack_vfs_os_volume *vol, const char *leadin
 							reloadTimeEntry( &time, vol, (dirblock->entries[m + offset].timelineEntry) VTReadWrite GRTENoLog DBG_SRC );
 							time.disk->dirent_fpi = vol->bufferFPI[cache] + sane_offsetof( struct directory_hash_lookup_block, entries[m] );
 							{
-								uint64_t index = time.disk->prior.ref.index;
+								uint64_t index = time.disk->priorIndex;
 								while( index ) {
 									struct memoryTimelineNode time2;
 									reloadTimeEntry( &time2, vol, index VTReadWrite GRTENoLog DBG_SRC );
 									time2.disk->dirent_fpi = time.disk->dirent_fpi;
 									updateTimeEntry( &time2, vol, TRUE DBG_SRC );
-									index = time2.disk->prior.ref.index;
+									index = time2.disk->priorIndex;
 								}
 							}
 #ifdef DEBUG_TIMELINE_DIR_TRACKING
@@ -67431,13 +66141,13 @@ static struct directory_entry * _os_GetNewDirectory( struct sack_vfs_os_volume *
 #endif
 						node.disk->dirent_fpi = dirblockFPI + sane_offsetof( struct directory_hash_lookup_block, entries[m] );
 						{
-							uint64_t index = node.disk->prior.ref.index;
+							uint64_t index = node.disk->priorIndex;
 							while( index ) {
 								struct memoryTimelineNode time2;
 								reloadTimeEntry( &time2, vol, index VTReadWrite GRTENoLog DBG_SRC );
 								time2.disk->dirent_fpi = node.disk->dirent_fpi;
 								updateTimeEntry( &time2, vol, TRUE DBG_SRC );
-								index = time2.disk->prior.ref.index;
+								index = time2.disk->priorIndex;
 							}
 						}
 #ifdef DEBUG_TIMELINE_DIR_TRACKING
@@ -68272,11 +66982,11 @@ static int _os_iterate_find( struct sack_vfs_os_find_info *_info ) {
 			enum block_cache_entries  timeCache = BC( TIMELINE );
 			reloadTimeEntry( &time, info->vol, (next_entries[n].timelineEntry) VTReadWrite GRTENoLog  DBG_SRC );
 			if( !time.disk->time ) DebugBreak();
-			if( time.disk->prior.raw )
+			if( time.disk->priorIndex )
 			{
 				enum block_cache_entries cache;
-				struct storageTimelineNode* prior = getRawTimeEntry( info->vol, time.disk->prior.raw, &cache GRTENoLog DBG_SRC );
-				while( prior->prior.raw ) prior = getRawTimeEntry( info->vol, prior->prior.raw, &cache GRTENoLog DBG_SRC );
+				struct storageTimelineNode* prior = getRawTimeEntry( info->vol, time.disk->priorIndex, &cache GRTENoLog DBG_SRC );
+				while( prior->priorIndex ) prior = getRawTimeEntry( info->vol, prior->priorIndex, &cache GRTENoLog DBG_SRC );
 				info->ctime = prior->time;
 			}
 			else
@@ -68680,6 +67390,34 @@ uintptr_t CPROC sack_vfs_os_system_ioctl( struct sack_vfs_os_volume* vol, uintpt
 	va_list args;
 	va_start( args, opCode );
 	return sack_vfs_os_system_ioctl_internal( vol, opCode, args );
+}
+LOGICAL sack_vfs_os_get_times( struct sack_vfs_os_file* file, uint64_t** timeArray, size_t* timeCount ) {
+	if( !timeArray ) return TRUE;
+	uint64_t scratchTime;
+	PDATALIST pdlTimes = CreateDataList( sizeof( uint64_t ) );
+	struct sack_vfs_os_volume* vol = file->vol;
+	struct memoryTimelineNode time;
+	enum block_cache_entries  timeCache = BC( TIMELINE );
+	reloadTimeEntry( &time, vol, file->entry->timelineEntry VTReadWrite GRTENoLog  DBG_SRC );
+	if( !time.disk->time ) DebugBreak();
+	scratchTime = ( (time.disk->time / 1000000 ) <<8) | time.disk->timeTz;
+	AddDataItem( &pdlTimes, &scratchTime );
+	if( time.disk->priorIndex ) {
+		enum block_cache_entries cache;
+		struct storageTimelineNode* prior = getRawTimeEntry( vol, time.disk->priorIndex, &cache GRTENoLog DBG_SRC );
+		scratchTime = ( ( time.disk->time / 1000000 ) << 8 ) | time.disk->timeTz;
+		AddDataItem( &pdlTimes, &scratchTime );
+		while( prior->priorIndex ) {
+			prior = getRawTimeEntry( vol, prior->priorIndex, &cache GRTENoLog DBG_SRC );
+			scratchTime = ( ( time.disk->time / 1000000 ) << 8 ) | time.disk->timeTz;
+			AddDataItem( &pdlTimes, &scratchTime );
+		}
+	}
+	dropRawTimeEntry( vol, time.diskCache GRTENoLog DBG_SRC );
+	timeArray[0] = NewArray( uint64_t, pdlTimes->Cnt );
+	MemCpy( timeArray[0], pdlTimes->data, pdlTimes->Cnt * sizeof( timeArray[0] ) );
+	timeCount[0] = pdlTimes->Cnt;
+	return TRUE;
 }
 #ifndef USE_STDIO
 static struct file_system_interface sack_vfs_os_fsi = {
@@ -69095,6 +67833,7 @@ static void MD5_memset (uint8_t* output, int value, unsigned int len)
  */
 #ifndef INCLUDED_SHA1_H_
 #define INCLUDED_SHA1_H_
+#define _SHA1_H_
 #ifdef SHA1_SOURCE
 #define SHA1_PROC(type,name) EXPORT_METHOD type CPROC name
 #else
@@ -71896,6 +70635,7 @@ int KangarooTwelve( const unsigned char * input, size_t inLen, unsigned char * o
  */
 #ifndef INCLUDED_SHA1_H_
 #define INCLUDED_SHA1_H_
+#define _SHA1_H_
 #ifdef SHA1_SOURCE
 #define SHA1_PROC(type,name) EXPORT_METHOD type CPROC name
 #else
@@ -72470,6 +71210,19 @@ char *SRG_ID_Generator4( void ) {
 	} while( (buf[0] & 0x3f) < 10 );
 	used[usingCtx] = 0;
 	return EncodeBase64Ex( (uint8*)buf, (16 + 16), &outlen, (const char *)1 );
+}
+char *SRG_ID_ShortGenerator4( void ) {
+	    struct random_context *ctx;
+	uint32_t buf[(12)/4];
+	size_t outlen;
+	static struct random_context *_ctx[SRG_MAX_GENERATOR_THREADS];
+	static uint32_t used[SRG_MAX_GENERATOR_THREADS];
+	int usingCtx;
+	usingCtx = 0;
+	ctx = getGenerator( _ctx, used, SRG_CreateEntropy4, &usingCtx );
+        SRG_GetEntropyBuffer( ctx, buf, 8 * (12) );
+	used[usingCtx] = 0;
+	return EncodeBase64Ex( (uint8*)buf, (12), &outlen, (const char *)1 );
 }
 #ifndef SALTY_RANDOM_GENERATOR_SOURCE
 #define SALTY_RANDOM_GENERATOR_SOURCE
