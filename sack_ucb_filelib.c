@@ -5073,11 +5073,24 @@ typedef void (CPROC*TaskOutput)(uintptr_t, PTASK_INFO task, CTEXTSTR buffer, siz
 #define LPP_OPTION_NEW_CONSOLE          16
 #define LPP_OPTION_SUSPEND              32
 #define LPP_OPTION_ELEVATE              64
+struct environmentValue {
+	char* field;
+	char* value;
+};
 SYSTEM_PROC( PTASK_INFO, LaunchPeerProgramExx )( CTEXTSTR program, CTEXTSTR path, PCTEXTSTR args
                                                , int flags
                                                , TaskOutput OutputHandler
                                                , TaskEnd EndNotice
                                                , uintptr_t psv
+                                                DBG_PASS
+                                               );
+SYSTEM_PROC( PTASK_INFO, LaunchPeerProgram_v2 )( CTEXTSTR program, CTEXTSTR path, PCTEXTSTR args
+                                               , int flags
+                                               , TaskOutput OutputHandler
+                                               , TaskOutput OutputHandler2
+                                               , TaskEnd EndNotice
+                                               , uintptr_t psv
+                                               , PLIST envStrings
                                                 DBG_PASS
                                                );
 SYSTEM_PROC( PTASK_INFO, LaunchProgramEx )( CTEXTSTR program, CTEXTSTR path, PCTEXTSTR args, TaskEnd EndNotice, uintptr_t psv );
@@ -5518,10 +5531,20 @@ namespace sack {
 /* Memory namespace contains functions for allocating and
    releasing memory. Also contains methods for accessing shared
    memory (if available on the target platform).
-   Allocate
-   Release
-   Hold
-   OpenSpace                                                    */
+   Allocate / New - get new memory
+   Release / Deallocate - allow others to use this memory
+   Hold - keep the memory; requires an additional Release.
+   Reallocate - given an existing block, allocate a new block, and copy the minimum of what's already in the block, and the new block size.  It is possible this is the same address, which is just extended into a free block.
+   OpenSpace - Low level system memory; requested by filename and region name and provides sharing;  NULL, NULL is just new memory.
+   GetHeapMemStats - Run diagnostics on the heap blocks.
+   SetAllocateLogging - enable allocate/deallocate loggging for debugging; returns the previous logging state.
+   SetAllocateDebug -  disables additional runtime checks compiled in for debug builds/
+   SetManualAllocateCheck - GetHeapMemStats is run every Allocate/Deallocate in debug mode; this disables that behavior, and expects the libary's user to check as required.
+   SetCriticalLogging - Enable/disable critical section logging; does of course influence timing when enabled.
+   SetMinAllocate - defines a minimum size that will be tracked internally; if every block is at least 100 bytes (for example), there is less chance at fragmentation when allocating 32-96 byte blocks.
+   SetHeapUnit - How much to expand the heap when more space is required.   Very large allocations will end up with their own memory mapped; but the sum of all small allocations will fill up a block of memory, and this controls the expansion rate.
+   AlignOfMemBlock - Get the alignment of a memory block; allows reallocate
+                                                */
 namespace memory {
 #endif
 typedef struct memory_block_tag* PMEM;
@@ -6996,6951 +7019,7 @@ namespace sack {
  *
  */
  // offsetof
-#include <stddef.h>
  // Sleep
-/* Includes the system platform as required or appropriate. If
-   under a linux system, include appropriate basic linux type
-   headers, if under windows pull "windows.h".
-   Includes the MOST stuff here ( a full windows.h parse is many
-   many lines of code.)                                          */
-/* A macro to build a wide character string of __FILE__ */
-#define _WIDE__FILE__(n) n
-#define WIDE__FILE__ _WIDE__FILE__(__FILE__)
-#if _XOPEN_SOURCE < 500
-#  undef _XOPEN_SOURCE
-#  define _XOPEN_SOURCE 500
-#endif
-#  ifndef _GNU_SOURCE
-#    define _GNU_SOURCE
-#  endif
-#ifndef STANDARD_HEADERS_INCLUDED
-/* multiple inclusion protection symbol */
-#define STANDARD_HEADERS_INCLUDED
-#if _POSIX_C_SOURCE < 200112L
-#  ifdef _POSIX_C_SOURCE
-#    undef _POSIX_C_SOURCE
-#  endif
-#  define _POSIX_C_SOURCE 200112L
-#endif
-#include <stdlib.h>
-#include <stdio.h>
-#include <stdint.h>
-#if _MSC_VER
-#  ifdef EXCLUDE_SAFEINT_H
-#    define _INTSAFE_H_INCLUDED_
-#  endif
- //_MSC_VER
-#endif
-#ifndef WINVER
-#  define WINVER 0x0601
-#endif
-#ifndef _WIN32
-#  ifndef __LINUX__
-#    define __LINUX__
-#  endif
-#endif
-#if !defined(__LINUX__)
-#  ifndef STRICT
-#    define STRICT
-#  endif
-#  define WIN32_LEAN_AND_MEAN
-// #define NOGDICAPMASKS             // CC_*, LC_*, PC_*, CP_*, TC_*, RC_
-// #define NOVIRTUALKEYCODES         // VK_*
-// #define NOWINMESSAGES             // WM_*, EM_*, LB_*, CB_*
-// #define NOWINSTYLES               // WS_*, CS_*, ES_*, LBS_*, SBS_*, CBS_*
-// #define NOSYSMETRICS              // SM_*
-// #define NOMENUS                   // MF_*
-// #define NOICONS                   // IDI_*
-// #define NOKEYSTATES               // MK_*
-// #define NOSYSCOMMANDS             // SC_*
-// #define NORASTEROPS               // Binary and Tertiary raster ops
-// #define NOSHOWWINDOW              // SW_*
-               // OEM Resource values
-#  define OEMRESOURCE
-// #define NOATOM                    // Atom Manager routines
-#  ifndef _INCLUDE_CLIPBOARD
-               // Clipboard routines
-#    define NOCLIPBOARD
-#  endif
-// #define NOCOLOR                   // Screen colors
-// #define NOCTLMGR                  // Control and Dialog routines
-//(spv) #define NODRAWTEXT                // DrawText() and DT_*
-// #define NOGDI                     // All GDI defines and routines
-// #define NOKERNEL                  // All KERNEL defines and routines
-// #define NOUSER                    // All USER defines and routines
-#  ifndef _ARM_
-#    ifndef _INCLUDE_NLS
-                     // All NLS defines and routines
-#      define NONLS
-#    endif
-#  endif
-// #define NOMB                      // MB_* and MessageBox()
-                  // GMEM_*, LMEM_*, GHND, LHND, associated routines
-#  define NOMEMMGR
-                // typedef METAFILEPICT
-#  define NOMETAFILE
-#  ifndef NOMINMAX
-                  // Macros min(a,b) and max(a,b)
-#    define NOMINMAX
-#  endif
-// #define NOMSG                     // typedef MSG and associated routines
-// #define NOOPENFILE                // OpenFile(), OemToAnsi, AnsiToOem, and OF_*
-// #define NOSCROLL                  // SB_* and scrolling routines
-                 // All Service Controller routines, SERVICE_ equates, etc.
-#  define NOSERVICE
-//#define NOSOUND                   // Sound driver routines
-#  ifndef _INCLUDE_TEXTMETRIC
-              // typedef TEXTMETRIC and associated routines
-#    define NOTEXTMETRIC
-#  endif
-// #define NOWH                      // SetWindowsHook and WH_*
-// #define NOWINOFFSETS              // GWL_*, GCL_*, associated routines
-// #define NOCOMM                    // COMM driver routines
-                   // Kanji support stuff.
-#  define NOKANJI
-                    // Help engine interface.
-#  define NOHELP
-                // Profiler interface.
-#  define NOPROFILER
-//#define NODEFERWINDOWPOS          // DeferWindowPos routines
-                     // Modem Configuration Extensions
-#  define NOMCX
-   // no StrCat StrCmp StrCpy etc functions.  (used internally)
-#  define NO_SHLWAPI_STRFCNS
-  // This also has defines that override StrCmp StrCpy etc... but no override
-#  define STRSAFE_NO_DEPRECATE
-#  ifdef _MSC_VER
-#    ifndef _WIN32_WINDOWS
-// needed at least this for what - updatelayeredwindow?
-#      define _WIN32_WINDOWS 0x0601
-#    endif
-#  endif
-// INCLUDE WINDOWS.H
-#  ifdef __WATCOMC__
-#    undef _WINDOWS_
-#  endif
-#  ifdef UNDER_CE
-// just in case windows.h also fails after undef WIN32
-// these will be the correct order for primitives we require.
-#    include <excpt.h>
-#    include <windef.h>
-#    include <winnt.h>
-#    include <winbase.h>
-#    include <wingdi.h>
-#    include <wtypes.h>
-#    include <winuser.h>
-#    undef WIN32
-#  endif
-#  define _WINSOCKAPI_
-#  include <windows.h>
-#  undef _WINSOCKAPI_
-#  if defined( WIN32 ) && defined( NEED_SHLOBJ )
-#    include <shlobj.h>
-#  endif
-#  if _MSC_VER > 1500
-#    define fileno _fileno
-#    define stricmp _stricmp
-#    define strdup _strdup
-#  endif
-#  ifdef WANT_MMSYSTEM
-#    include <mmsystem.h>
-#  endif
-#  if USE_NATIVE_TIME_GET_TIME
-//#  include <windowsx.h>
-// we like timeGetTime() instead of GetTickCount()
-//#  include <mmsystem.h>
-#    ifdef __cplusplus
-extern "C"
-#    endif
-__declspec(dllimport) DWORD WINAPI timeGetTime(void);
-#  endif
-#  ifdef WIN32
-#    if defined( NEED_SHLAPI )
-#      include <shlwapi.h>
-#      include <shellapi.h>
-#    endif
-#    ifdef NEED_V4W
-#      include <vfw.h>
-#    endif
-#  endif
-#  if defined( HAVE_ENVIRONMENT )
-#    define getenv(name)       OSALOT_GetEnvironmentVariable(name)
-#    define setenv(name,val)   SetEnvironmentVariable(name,val)
-#  endif
-#  define Relinquish()       Sleep(0)
-//#pragma pragnoteonly("GetFunctionAddress is lazy and has no library cleanup - needs to be a lib func")
-//#define GetFunctionAddress( lib, proc ) GetProcAddress( LoadLibrary( lib ), (proc) )
-#  ifdef __cplusplus_cli
-#    include <vcclr.h>
- /*lprintf( */
-#    define DebugBreak() System::Console::WriteLine(gcnew System::String( WIDE__FILE__ "(" STRSYM(__LINE__) ") Would DebugBreak here..." ) );
-//typedef unsigned int HANDLE;
-//typedef unsigned int HMODULE;
-//typedef unsigned int HWND;
-//typedef unsigned int HRC;
-//typedef unsigned int HMENU;
-//typedef unsigned int HICON;
-//typedef unsigned int HINSTANCE;
-#  endif
- // ifdef unix/linux
-#else
-#  include <pthread.h>
-#  include <sched.h>
-#  include <unistd.h>
-#  include <sys/time.h>
-#  if defined( __ARM__ )
-#    define DebugBreak()
-#  else
-/* A symbol used to cause a debugger to break at a certain
-   point. Sometimes dynamicly loaded plugins can be hard to set
-   the breakpoint in the debugger, so it becomes easier to
-   recompile with a breakpoint in the right place.
-   Example
-   <code lang="c++">
-   DebugBreak();
-	</code>                                                      */
-#    ifdef __ANDROID__
-#      define DebugBreak()
-#    else
-#      if defined( __EMSCRIPTEN__ ) || defined( __ARM__ )
-#        define DebugBreak()
-#      else
-#        define DebugBreak()  __asm__("int $3\n" )
-#      endif
-#    endif
-#  endif
-#  ifdef __ANDROID_OLD_PLATFORM_SUPPORT__
-extern __sighandler_t bsd_signal(int, __sighandler_t);
-#  endif
-// moved into timers - please linnk vs timers to get Sleep...
-//#define Sleep(n) (usleep((n)*1000))
-#  define Relinquish() sched_yield()
-#  define GetLastError() (int32_t)errno
-/* return with a THREAD_ID that is a unique, universally
-   identifier for the thread for inter process communication. */
-#  define GetCurrentProcessId() ((uint32_t)getpid())
-#  define GetCurrentThreadId() ((uint32_t)getpid())
-  // end if( !__LINUX__ )
-#endif
-#include <errno.h>
-#ifndef NEED_MIN_MAX
-#  ifndef NO_MIN_MAX_MACROS
-#    define NO_MIN_MAX_MACROS
-#  endif
-#endif
-#ifndef NO_MIN_MAX_MACROS
-#  ifdef __cplusplus
-#    ifdef __GNUC__
-#      ifndef min
-#        define min(a,b) ((a)<(b))?(a):(b)
-#      endif
-#    endif
-#  endif
-/* Define a min(a,b) macro when the compiler lacks it. */
-#  ifndef min
-#    define min(a,b) (((a)<(b))?(a):(b))
-#  endif
-/* Why not add the max macro, also? */
-#  ifndef max
-#    define max(a,b) (((a)>(b))?(a):(b))
-#  endif
-#endif
-#ifndef SACK_PRIMITIVE_TYPES_INCLUDED
-#define SACK_PRIMITIVE_TYPES_INCLUDED
-/* Define most of the sack core types on which everything else is
-   based. Also defines some of the primitive container
-   structures. We also handle a lot of platform/compiler
-   abstraction here.
-   A reFactoring for stdint.h and uint32_t etc would be USEFUL!
-   where types don't exist, define them as apprpritate types instead.
-But WHO doesn't have stdint?  BTW is sizeof( size_t ) == sizeof( void* )
-   This is automatically included with stdhdrs.h; however, when
-   including sack_types.h, the minimal headers are pulled. */
-#define HAS_STDINT
-//#define USE_SACK_CUSTOM_MEMORY_ALLOCATION
-	// this has to be a compile option (option from cmake)
-   // enables debug dump mem...
-#ifdef USE_SACK_CUSTOM_MEMORY_ALLOCATION
-#  define USE_CUSTOM_ALLOCER 1
-#else
-#  define USE_CUSTOM_ALLOCER 0
-#endif
-#ifndef __64__
-#  if defined( _WIN64 ) || defined( ENVIRONMENT64 ) || defined( __x86_64__ ) || defined( __ia64 ) || defined( __ppc64__ ) || defined( __LP64__ )
-#    define __64__ 1
-#  endif
-#endif
-#ifdef _MSC_VER
-#  ifndef _WIN32_WINNT
-#    define _WIN32_WINNT 0x501
-#  endif
-#  ifndef WIN32
-#    ifdef _WIN32
-#      define WIN32 _WIN32
-#    endif
-#  endif
-// force windows on __MSVC
-#  ifndef WIN32
-#    define WIN32
-#  endif
-#endif
-#if !defined( __NO_THREAD_LOCAL__ ) && ( defined( _MSC_VER ) || defined( __WATCOMC__ ) )
-#  define HAS_TLS 1
-#  ifdef __cplusplus
-#    define DeclareThreadLocal static thread_local
-#    define DeclareThreadVar  thread_local
-#  else
-#    define DeclareThreadLocal static __declspec(thread)
-#    define DeclareThreadVar __declspec(thread)
-#  endif
-#elif !defined( __NO_THREAD_LOCAL__ ) && ( defined( __GNUC__ ) || defined( __MAC__ ) )
-#    define HAS_TLS 1
-#    ifdef __cplusplus
-#      define DeclareThreadLocal static thread_local
-#      define DeclareThreadVar thread_local
-#    else
-#    define DeclareThreadLocal static __thread
-#    define DeclareThreadVar __thread
-#  endif
-#else
-// if no HAS_TLS
-#  define DeclareThreadLocal static
-#  define DeclareThreadVar
-#endif
-#ifdef __cplusplus_cli
-// these things define a type called 'Byte'
-	// which causes confusion... so don't include vcclr for those guys.
-#  ifdef SACK_BAG_EXPORTS
-// maybe only do this while building sack_bag project itself...
-#    if !defined( ZCONF_H )        && !defined( __FT2_BUILD_GENERIC_H__ )        && !defined( ZUTIL_H )        && !defined( SQLITE_PRIVATE )        && !defined( NETSERVICE_SOURCE )        && !defined( LIBRARY_DEF )
-//using namespace System;
-#    endif
-#  endif
-#endif
-// Defined for building visual studio monolithic build.  These symbols are not relavent with cmakelists.
-#ifdef SACK_BAG_EXPORTS
-#  define SACK_BAG_CORE_EXPORTS
-// exports don't really matter with CLI compilation.
-#  ifndef BAG
-//#ifndef TARGETNAME
-//#  define TARGETNAME "sack_bag.dll"  //$(TargetFileName)
-//#endif
-#    define MD5_SOURCE
-#    define USE_SACK_FILE_IO
-/* Defined when SACK_BAG_EXPORTS is defined. This was an
-   individual library module once upon a time.           */
-#    define MEM_LIBRARY_SOURCE
-/* Defined when SACK_BAG_EXPORTS is defined. This was an
-   individual library module once upon a time.           */
-#define SYSLOG_SOURCE
-/* Defined when SACK_BAG_EXPORTS is defined. This was an
-   individual library module once upon a time.           */
-#define _TYPELIBRARY_SOURCE
-/* Defined when SACK_BAG_EXPORTS is defined. This was an
-   individual library module once upon a time.           */
-#define HTTP_SOURCE
-/* Defined when SACK_BAG_EXPORTS is defined. This was an
-   individual library module once upon a time.           */
-#define TIMER_SOURCE
-/* Defined when SACK_BAG_EXPORTS is defined. This was an
-   individual library module once upon a time.           */
-#define IDLE_SOURCE
-/* Defined when SACK_BAG_EXPORTS is defined. This was an
-   individual library module once upon a time.           */
-#define CLIENTMSG_SOURCE
-/* Defined when SACK_BAG_EXPORTS is defined. This was an
-   individual library module once upon a time.           */
-#define FRACTION_SOURCE
-/* Defined when SACK_BAG_EXPORTS is defined. This was an
-   individual library module once upon a time.           */
-#define NETWORK_SOURCE
-/* Defined when SACK_BAG_EXPORTS is defined. This was an
-   individual library module once upon a time.           */
-#define CONFIGURATION_LIBRARY_SOURCE
-/* Defined when SACK_BAG_EXPORTS is defined. This was an
-   individual library module once upon a time.           */
-#define FILESYSTEM_LIBRARY_SOURCE
-/* Defined when SACK_BAG_EXPORTS is defined. This was an
-   individual library module once upon a time.           */
-#define SYSTEM_SOURCE
-/* Defined when SACK_BAG_EXPORTS is defined. This was an
-   individual library module once upon a time.           */
-#define FILEMONITOR_SOURCE
-/* Defined when SACK_BAG_EXPORTS is defined. This was an
-   individual library module once upon a time.           */
-#define VECTOR_LIBRARY_SOURCE
-/* Defined when SACK_BAG_EXPORTS is defined. This was an
-   individual library module once upon a time.           */
-#define SHA1_SOURCE
-/* Defined when SACK_BAG_EXPORTS is defined. This was an
-   individual library module once upon a time.           */
-#    define CONSTRUCT_SOURCE
-/* Defined when SACK_BAG_EXPORTS is defined. This was an
-   individual library module once upon a time.           */
-#    define PROCREG_SOURCE
-/* Defined when SACK_BAG_EXPORTS is defined. This was an
-   individual library module once upon a time.           */
-#    define SQLPROXY_LIBRARY_SOURCE
-/* Defined when SACK_BAG_EXPORTS is defined. This was an
-   individual library module once upon a time.           */
-#      define TYPELIB_SOURCE
-/* Defined when SACK_BAG_EXPORTS is defined. This was an
-   individual library module once upon a time.           */
-#      define JSON_EMITTER_SOURCE
-/* Defined when SACK_BAG_EXPORTS is defined. This was an
-   individual library module once upon a time.           */
-#    define SERVICE_SOURCE
-#    ifndef __NO_SQL__
-#      ifndef __NO_OPTIONS__
-/* Defined when SACK_BAG_EXPORTS is defined. This was an
-   individual library module once upon a time.    and not NO_SQL and not NO_OPTIONS   */
-#        define SQLGETOPTION_SOURCE
-#      endif
-#    endif
-/* Defined when SACK_BAG_EXPORTS is defined. This was an
-   individual library module once upon a time.           */
-#    define PSI_SOURCE
-/* Defined when SACK_BAG_EXPORTS is defined. This was an
-   individual library module once upon a time.           */
-#    define MNG_BUILD_DLL
-/* Defined when SACK_BAG_EXPORTS is defined. This was an
-   individual library module once upon a time.           */
-#    define BAGIMAGE_EXPORTS
-/* Defined when SACK_BAG_EXPORTS is defined. This was an
- individual library module once upon a time.           */
-#    ifndef IMAGE_LIBRARY_SOURCE
-#      define IMAGE_LIBRARY_SOURCE
-#    endif
-/* Defined when SACK_BAG_EXPORTS is defined. This was an
-   individual library module once upon a time.           */
-/* Defined when SACK_BAG_EXPORTS is defined. This was an
-   individual library module once upon a time.           */
-#    define SYSTRAY_LIBRARAY
-/* Defined when SACK_BAG_EXPORTS is defined. This was an
-   individual library module once upon a time.           */
-#    define SOURCE_PSI2
-/* Defined when SACK_BAG_EXPORTS is defined. This was an
-   individual library module once upon a time.           */
-#    define VIDEO_LIBRARY_SOURCE
-/* Defined when SACK_BAG_EXPORTS is defined. This was an
-   individual library module once upon a time.           */
-	/* define RENDER SOURCE when building monolithic. */
-#    ifndef RENDER_LIBRARY_SOURCE
-#      define RENDER_LIBRARY_SOURCE
-#    endif
-// define a type that is a public name struct type...
-// good thing that typedef and struct were split
-// during the process of port to /clr option.
-//#define PUBLIC_TYPE public
-#  else
-//#define PUBLIC_TYPE
-#    ifdef __cplusplus_CLR
-//using namespace System;
-#    endif
-#  endif
-#endif
- // wchar for X_16 definition
-#include <wchar.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#if !defined( _WIN32 ) && !defined( __MAC__ )
-#  include <sys/syscall.h>
-#elif defined( __MAC__ )
-#endif
-#ifndef MY_TYPES_INCLUDED
-#  define MY_TYPES_INCLUDED
-// include this before anything else
-// thereby allowing us to redefine exit()
- // CHAR_BIT
-#  include <limits.h>
- // typelib requires this
-#  include <stdarg.h>
-#  ifdef _MSC_VER
-#    ifndef UNDER_CE
- // memlib requires this, and it MUST be included befoer string.h if it is used.
-#      include <intrin.h>
-#    endif
-#  endif
- // typelib requires this
-#  include <string.h>
-#  if !defined( WIN32 ) && !defined( _WIN32 ) && !defined( _PNACL )
-#    include <dlfcn.h>
-#  endif
-#  if defined( _MSC_VER )
-#    define EMPTY_STRUCT struct { char nothing[]; }
-#  endif
-#  if defined( __WATCOMC__ )
-#     define EMPTY_STRUCT char
-#  endif
-#  ifdef __cplusplus
-/* Could also consider defining 'SACK_NAMESPACE' as 'extern "C"
-   ' {' and '..._END' as '}'                                    */
-#    define SACK_NAMESPACE namespace sack {
-/* Define the container namespace (when building with C++, the
-   wrappers are namespace{} instead of extern"c"{} )           */
-#    define SACK_NAMESPACE_END }
-/* Define the container namespace (when building with C++, the
-   wrappers are namespace{} instead of extern"c"{} )           */
-#    define _CONTAINER_NAMESPACE namespace containers {
-/* Define the container namespace (when building with C++, the
-   wrappers are namespace{} instead of extern"c"{} )           */
-#    define _CONTAINER_NAMESPACE_END }
-/* Define the container namespace (when building with C++, the
-   wrappers are namespace{} instead of extern"c"{} )           */
-#    define _LINKLIST_NAMESPACE namespace list {
-/* Define the container namespace (when building with C++, the
-   wrappers are namespace{} instead of extern"c"{} )           */
-#    define _LINKLIST_NAMESPACE_END }
-/* Define the container namespace (when building with C++, the
-   wrappers are namespace{} instead of extern"c"{} )           */
-#    define _DATALIST_NAMESPACE namespace data_list {
-/* Define the container namespace (when building with C++, the
-   wrappers are namespace{} instead of extern"c"{} )           */
-#    define _DATALIST_NAMESPACE_END }
-/* Define the container namespace (when building with C++, the
-   wrappers are namespace{} instead of extern"c"{} )           */
-#    define _SETS_NAMESPACE namespace sets {
-/* Define the container namespace (when building with C++, the
-   wrappers are namespace{} instead of extern"c"{} )           */
-#    define _SETS_NAMESPACE_END }
-/* Define the container namespace (when building with C++, the
-   wrappers are namespace{} instead of extern"c"{} )           */
-#    define _TEXT_NAMESPACE namespace text {
-/* Define the container namespace (when building with C++, the
-   wrappers are namespace{} instead of extern"c"{} )           */
-#    define _TEXT_NAMESPACE_END }
-/* Define the container namespace (when building with C++, the
-   wrappers are namespace{} instead of extern"c"{} )           */
-#    define TEXT_NAMESPACE SACK_NAMESPACE _CONTAINER_NAMESPACE namespace text {
-/* Define the container namespace (when building with C++, the
-   wrappers are namespace{} instead of extern"c"{} )           */
-#    define TEXT_NAMESPACE_END  } _CONTAINER_NAMESPACE_END SACK_NAMESPACE_END
-#  else
-/* Define the sack namespace (when building with C++, the
-   wrappers are namespace{} instead of extern"c"{} )           */
-#    define SACK_NAMESPACE
-/* Define the sack namespace (when building with C++, the
-   wrappers are namespace{} instead of extern"c"{} )           */
-#    define SACK_NAMESPACE_END
-/* Define the container namespace (when building with C++, the
-   wrappers are namespace{} instead of extern"c"{} )           */
-#    define _CONTAINER_NAMESPACE
-/* Define the container namespace (when building with C++, the
-   wrappers are namespace{} instead of extern"c"{} )           */
-#    define _CONTAINER_NAMESPACE_END
-/* Define the container namespace (when building with C++, the
-   wrappers are namespace{} instead of extern"c"{} )           */
-#    define _LINKLIST_NAMESPACE
-/* Define the container namespace (when building with C++, the
-   wrappers are namespace{} instead of extern"c"{} )           */
-#    define _LINKLIST_NAMESPACE_END
-/* Define the container namespace (when building with C++, the
-   wrappers are namespace{} instead of extern"c"{} )           */
-#    define _DATALIST_NAMESPACE
-/* Define the container namespace (when building with C++, the
-   wrappers are namespace{} instead of extern"c"{} )           */
-#    define _DATALIST_NAMESPACE_END
-/* Define the container namespace (when building with C++, the
-   wrappers are namespace{} instead of extern"c"{} )           */
-#    define _SETS_NAMESPACE
-/* Define the container namespace (when building with C++, the
-   wrappers are namespace{} instead of extern"c"{} )           */
-#    define _SETS_NAMESPACE_END
-/* Define the container namespace (when building with C++, the
-   wrappers are namespace{} instead of extern"c"{} )           */
-#    define _TEXT_NAMESPACE
-/* Define the container namespace (when building with C++, the
-   wrappers are namespace{} instead of extern"c"{} )           */
-#    define _TEXT_NAMESPACE_END
-/* Define the container namespace (when building with C++, the
-   wrappers are namespace{} instead of extern"c"{} )           */
-#    define TEXT_NAMESPACE
-/* Define the container namespace (when building with C++, the
-   wrappers are namespace{} instead of extern"c"{} )           */
-#    define TEXT_NAMESPACE_END
-#  endif
-/* declare composite SACK_CONTAINER namespace to declare sack::container in a single line */
-#  define SACK_CONTAINER_NAMESPACE SACK_NAMESPACE _CONTAINER_NAMESPACE
-/* declare composite SACK_CONTAINER namespace to close sack::container in a single line */
-#  define SACK_CONTAINER_NAMESPACE_END _CONTAINER_NAMESPACE_END SACK_NAMESPACE_END
-/* declare composite SACK_CONTAINER namespace to declare sack::container::list in a single line */
-#  define SACK_CONTAINER_LINKLIST_NAMESPACE SACK_CONTAINER_NAMESPACE _LISTLIST_NAMESPACE
-/* declare composite SACK_CONTAINER namespace to close sack::container::list in a single line */
-#  define SACK_CONTAINER_LINKLIST_NAMESPACE_END _LISTLIST_NAMESPACE_END SACK_CONTAINER_NAMESPACE
-// this symbols is defined to enforce
-// the C Procedure standard - using a stack, and resulting
-// in EDX:EAX etc...
-#  define CPROC
-#  ifdef SACK_BAG_EXPORTS
-#    ifdef BUILD_GLUE
-// this is used as the export method appropriate for C#?
-#      define EXPORT_METHOD [DllImport(LibName)] public
-#    else
-#      ifdef __cplusplus_cli
-#        if defined( __STATIC__ ) || defined( __LINUX__ ) || defined( __ANDROID__ )
-#          define EXPORT_METHOD
-#          define IMPORT_METHOD extern
-#        else
-#          define EXPORT_METHOD __declspec(dllexport)
-#          define IMPORT_METHOD __declspec(dllimport)
-#        endif
-#        define LITERAL_LIB_EXPORT_METHOD __declspec(dllexport)
-#        define LITERAL_LIB_IMPORT_METHOD extern
-//__declspec(dllimport)
-#      else
-#        if defined( __STATIC__ ) || defined( __LINUX__ ) || defined( __ANDROID__ )
-#          define EXPORT_METHOD
-#          define IMPORT_METHOD extern
-#        else
-/* Method to declare functions exported from a DLL. (nothign on
-   LINUX or building statically, but __declspec(dllimport) on
-   windows )                                                    */
-#          define EXPORT_METHOD __declspec(dllexport)
-/* method to define a function which will be Imported from a
-   library. Under windows, this is probably
-   __declspec(dllimport). Under linux this is probably 'extern'. */
-#          define IMPORT_METHOD __declspec(dllimport)
-#        endif
-#        define LITERAL_LIB_EXPORT_METHOD __declspec(dllexport)
-#        define LITERAL_LIB_IMPORT_METHOD __declspec(dllimport)
-#      endif
-#    endif
-#  else
-#  if ( !defined( __STATIC__ ) && defined( WIN32 ) && !defined( __cplusplus_cli) )
-#    define EXPORT_METHOD __declspec(dllexport)
-#    define IMPORT_METHOD __declspec(dllimport)
-#    define LITERAL_LIB_EXPORT_METHOD __declspec(dllexport)
-#    define LITERAL_LIB_IMPORT_METHOD __declspec(dllimport)
-#  else
-// MRT:  This is needed.  Need to see what may be defined wrong and fix it.
-#    if defined( __LINUX__ ) || defined( __STATIC__ ) || defined( __ANDROID__ )
-#      define EXPORT_METHOD
-#      define IMPORT_METHOD extern
-#      define LITERAL_LIB_EXPORT_METHOD
-#      define LITERAL_LIB_IMPORT_METHOD extern
-#    else
-#      define EXPORT_METHOD __declspec(dllexport)
-#      define IMPORT_METHOD __declspec(dllimport)
-/* Define how methods in LITERAL_LIBRARIES are exported.
-   literal_libraries are libraries that are used for plugins,
-   and are dynamically loaded by code. They break the rules of
-   system prefix and suffix extensions. LITERAL_LIBRARIES are
-   always dynamic, and never static.                           */
-#      define LITERAL_LIB_EXPORT_METHOD __declspec(dllexport)
-/* Define how methods in LITERAL_LIBRARIES are imported.
-   literal_libraries are libraries that are used for plugins,
-   and are dynamically loaded by code. They break the rules of
-   system prefix and suffix extensions. LITERAL_LIBRARIES are
-   always dynamic, and never static.                           */
-#      define LITERAL_LIB_IMPORT_METHOD __declspec(dllimport)
-#    endif
-#  endif
-#endif
-#ifdef __EMSCRIPTEN__
-#include <emscripten.h>
-#include <emscripten/emscripten.h>
-// Emscripten exports just need to be not optimized out.
-#  undef  EXPORT_METHOD
-#  define EXPORT_METHOD                EMSCRIPTEN_KEEPALIVE
-#  undef  LITERAL_LIB_EXPORT_METHOD
-#  define LITERAL_LIB_EXPORT_METHOD    EMSCRIPTEN_KEEPALIVE
-#endif
-// used when the keword specifying a structure is packed
-// needs to prefix the struct keyword.
-#define PREFIX_PACKED
-// private thing left as a note, and forgotten.  some compilers did not define offsetof
-#define my_offsetof( ppstruc, member ) ((uintptr_t)&((*ppstruc)->member)) - ((uintptr_t)(*ppstruc))
-SACK_NAMESPACE
-#ifdef BCC16
-#define __inline__
-#define MAINPROC(type,name)     type _pascal name
-// winproc is intended for use at libmain/wep/winmain...
-#define WINPROC(type,name)      type _far _pascal _export name
-// callbackproc is for things like timers, dlgprocs, wndprocs...
-#define CALLBACKPROC(type,name) type _far _pascal _export name
-#define PUBLIC(type,name)       type STDPROC _export name
- /* here would be if dwReason == process_attach */
-#define LIBMAIN() WINPROC(int, LibMain)(HINSTANCE hInstance, WORD wDataSeg, WORD wHeapSize, LPSTR lpCmdLine )		 { {
- /* end if */
- /*endproc*/
-#define LIBEXIT() } }	    int STDPROC WEP(int nSystemExit )  {
-#define LIBMAIN_END()  }
-// should use this define for all local defines...
-// this will allow one place to modify ALL _pascal or not to _pascal decls.
-#define STDPROC _far _pascal
-#endif
-#if defined( __LCC__ ) || defined( _MSC_VER ) || defined(__DMC__) || defined( __WATCOMC__ )
-#ifdef __WATCOMC__
-#undef CPROC
-#define CPROC __cdecl
-#define STDPROC __cdecl
-#ifndef __WATCOMC__
-// watcom windef.h headers define this
-#define STDCALL _stdcall
-#endif
-#if __WATCOMC__ >= 1280
-// watcom windef.h headers no longer define this.
-#define STDCALL __stdcall
-#endif
-#undef PREFIX_PACKED
-#define PREFIX_PACKED _Packed
-#else
-#undef CPROC
-//#error blah
-#define CPROC __cdecl
-#define STDPROC
-#define STDCALL _stdcall
-#endif
-#define far
-#define huge
-#define near
-#define _far
-#define _huge
-#define _near
-/* portability type for porting legacy 16 bit applications. */
-/* portability macro for legacy 16 bit applications. */
-#define __far
-#ifndef FAR
-#define FAR
-#endif
-//#define HUGE
-//#ifndef NEAR
-//#define NEAR
-//#endif
-#define _fastcall
-#ifdef __cplusplus
-#ifdef __cplusplus_cli
-#define PUBLIC(type,name) extern "C"  LITERAL_LIB_EXPORT_METHOD type CPROC name
-#else
-//#error what the hell!?
-// okay Public functions are meant to be loaded with LoadFuncion( "library" , "function name"  );
-#define PUBLIC(type,name) extern "C"  LITERAL_LIB_EXPORT_METHOD type CPROC name
-#endif
-#else
-#define PUBLIC(type,name) LITERAL_LIB_EXPORT_METHOD type CPROC name
-#endif
-#define MAINPROC(type,name)  type WINAPI name
-#define WINPROC(type,name)   type WINAPI name
-#define CALLBACKPROC(type,name) type CALLBACK name
-#if defined( __WATCOMC__ )
-#define LIBMAIN()   static int __LibMain( HINSTANCE ); PRELOAD( LibraryInitializer ) {	 __LibMain( GetModuleHandle(TARGETNAME) );   }	 static int __LibMain( HINSTANCE hInstance ) {
-#define LIBEXIT() } static int LibExit( void ); ATEXIT( LiraryUninitializer ) { LibExit(); } int LibExit(void) {
-#define LIBMAIN_END() }
-#else
-#ifdef TARGETNAME
-#define LIBMAIN()   static int __LibMain( HINSTANCE ); PRELOAD( LibraryInitializer ) {	 __LibMain( GetModuleHandle(TARGETNAME) );   }	 static int __LibMain( HINSTANCE hInstance ) {
-#else
-#define LIBMAIN()   TARGETNAME_NOT_DEFINED
-#endif
-#define LIBEXIT() } static int LibExit( void ); ATEXIT( LiraryUninitializer ) { LibExit(); } int LibExit(void) {
-#define LIBMAIN_END() }
-#endif
-#define PACKED
-#endif
-#if defined( __GNUC__ )
-#  ifndef STDPROC
-#    define STDPROC
-#  endif
-#  ifndef STDCALL
- // for IsBadCodePtr which isn't a linux function...
-#    define STDCALL
-#  endif
-#  ifndef WINAPI
-#    ifdef __LINUX__
-#       define WINAPI
-#    else
-#       define WINAPI __stdcall
-#    endif
-#  endif
-#  ifndef PASCAL
-//#define PASCAL
-#  endif
-#  define WINPROC(type,name)   type WINAPI name
-#  define CALLBACKPROC( type, name ) type name
-#  define PUBLIC(type,name) EXPORT_METHOD type CPROC name
-#  define LIBMAIN()   static int __LibMain( HINSTANCE ); PRELOAD( LibraryInitializer ) {	 __LibMain( GetModuleHandle(TARGETNAME) );   }	 static int __LibMain( HINSTANCE hInstance ) {
-#  define LIBEXIT() } static int LibExit( void ); ATEXIT( LiraryUninitializer ) { LibExit(); } int LibExit(void) {
-#  define LIBMAIN_END()  }
-/* Portability Macro for porting legacy code forward. */
-#  define FAR
-#  define NEAR
-//#define HUGE
-#  define far
-#  define near
-#  define huge
-#  define PACKED __attribute__((packed))
-#endif
-#if defined( BCC32 )
-#define far
-#define huge
-/* define obsolete keyword for porting purposes */
-/* defined for porting from 16 bit environments */
-#define near
-/* portability macro for legacy 16 bit applications. */
-#define _far
-#define _huge
-#define _near
-/* portability type for porting to compilers that don't inline. */
-/* portability macro for legacy 16 bit applications. */
-#define __inline__
-#define MAINPROC(type,name)     type _pascal name
-// winproc is intended for use at libmain/wep/winmain...
-#define WINPROC(type,name)      EXPORT_METHOD type _pascal name
-// callbackproc is for things like timers, dlgprocs, wndprocs...
-#define CALLBACKPROC(type,name) EXPORT_METHOD type _stdcall name
-#define STDCALL _stdcall
-#define PUBLIC(type,name)        type STDPROC name
-#ifdef __STATIC__
-			/*Log( "Library Enter" );*/
-#define LIBMAIN() static WINPROC(int, LibMain)(HINSTANCE hInstance, DWORD dwReason, void *unused )		 { if( dwReason == DLL_PROCESS_ATTACH ) {
- /* end if */
-#define LIBEXIT() } if( dwReason == DLL_PROCESS_DETACH ) {
-#define LIBMAIN_END()  } return 1; }
-#else
-			/*Log( "Library Enter" );*/
-#define LIBMAIN() WINPROC(int, LibMain)(HINSTANCE hInstance, DWORD dwReason, void *unused )		 { if( dwReason == DLL_PROCESS_ATTACH ) {
- /* end if */
-#define LIBEXIT() } if( dwReason == DLL_PROCESS_DETACH ) {
-#define LIBMAIN_END()  } return 1; }
-#endif
-// should use this define for all local defines...
-// this will allow one place to modify ALL _pascal or not to _pascal decls.
-#define STDPROC _pascal
-#define PACKED
-#endif
-#define TOCHR(n) #n[0]
-#define TOSTR(n) #n
-#define STRSYM(n) TOSTR(n)
-#define _WIDE__FILE__(n) n
-#define WIDE__FILE__ _WIDE__FILE__(__FILE__)
-/* a constant text string that represents the current source
-   filename and line... fourmated as "source.c(11) :"        */
-#define FILELINE  TEXT(__FILE__) "(" TEXT(STRSYM(__LINE__))" : ")
-#if defined( _MSC_VER ) || defined( __PPCCPP__ )
-/* try and define a way to emit comipler messages... but like no compilers support standard ways to do this accross the board.*/
-#define pragnote(msg) message( FILELINE msg )
-/* try and define a way to emit comipler messages... but like no compilers support standard ways to do this accross the board.*/
-#define pragnoteonly(msg) message( msg )
-#else
-/* try and define a way to emit comipler messages... but like no compilers support standard ways to do this accross the board.*/
-#define pragnote(msg) msg
-/* try and define a way to emit comipler messages... but like no compilers support standard ways to do this accross the board.*/
-#define pragnoteonly(msg) msg
-#endif
-/* specify a consistant macro to pass current file and line information.   This are appended parameters, and common usage is to only use these with _DEBUG set. */
-#define FILELINE_SRC         , __FILE__, __LINE__
-/* specify a consistant macro to pass current file and line information, to functions which void param lists.   This are appended parameters, and common usage is to only use these with _DEBUG set. */
-#define FILELINE_VOIDSRC     __FILE__, __LINE__
-//#define FILELINE_LEADSRC     __FILE__, __LINE__,
-/* specify a consistant macro to define file and line parameters, to functions with otherwise void param lists.  This are appended parameters, and common usage is to only use these with _DEBUG set. */
-#define FILELINE_VOIDPASS    CTEXTSTR pFile, uint32_t nLine
-//#define FILELINE_LEADPASS    CTEXTSTR pFile, uint32_t nLine,
-/* specify a consistant macro to define file and line parameters.   This are appended parameters, and common usage is to only use these with _DEBUG set. */
-#define FILELINE_PASS        , CTEXTSTR pFile, uint32_t nLine
-/* specify a consistant macro to forward file and line parameters.   This are appended parameters, and common usage is to only use these with _DEBUG set. */
-#define FILELINE_RELAY       , pFile, nLine
-/* specify a consistant macro to forward file and line parameters.   This are appended parameters, and common usage is to only use these with _DEBUG set. */
-#define FILELINE_NULL        , NULL, 0
-/* specify a consistant macro to forward file and line parameters, to functions which have void parameter lists without this information.  This are appended parameters, and common usage is to only use these with _DEBUG set. */
-#define FILELINE_VOIDRELAY   pFile, nLine
-/* specify a consistant macro to format file and line information for printf formated strings. */
-#define FILELINE_FILELINEFMT "%s(%" _32f "): "
-#define FILELINE_FILELINEFMT_MIN "%s(%" _32f ")"
-#define FILELINE_NULL        , NULL, 0
-#define FILELINE_VOIDNULL    NULL, 0
-/* define static parameters which are the declaration's current file and line, for stubbing in where debugging is being stripped.
-  usage
-    FILELINE_VARSRC: // declare pFile and nLine variables.
-	*/
-#define FILELINE_VARSRC       CTEXTSTR pFile = __FILE__; uint32_t nLine = __LINE__
-// this is for passing FILE, LINE information to allocate
-// useful during DEBUG phases only...
-// drop out these debug relay paramters for managed code...
-// we're going to have the full call frame managed and known...
-#if !defined( _DEBUG ) && !defined( _DEBUG_INFO )
-#  if defined( __LINUX__ ) && !defined( __PPCCPP__ )
-//#warning "Setting DBG_PASS and DBG_FORWARD to be ignored."
-#  else
-//#pragma pragnoteonly("Setting DBG_PASS and DBG_FORWARD to be ignored"  )
-#  endif
-#define DBG_AVAILABLE   0
-/* in NDEBUG mode, pass nothing */
-#define DBG_SRC
-/* <combine sack::DBG_PASS>
-   in NDEBUG mode, pass nothing */
-#define DBG_VOIDSRC
-/* <combine sack::DBG_PASS>
-   \#define DBG_LEADSRC in NDEBUG mode, declare (void) */
-/* <combine sack::DBG_PASS>
-   \ \                      */
-#define DBG_VOIDPASS    void
-/* <combine sack::DBG_PASS>
-   in NDEBUG mode, pass nothing */
-#define DBG_PASS
-/* <combine sack::DBG_PASS>
-   in NDEBUG mode, pass nothing */
-#define DBG_RELAY
-/* <combine sack::DBG_PASS>
-   in _DEBUG mode, pass FILELINE_NULL */
-#define DBG_NULL
-/* <combine sack::DBG_PASS>
-   in NDEBUG mode, pass nothing */
-#define DBG_VOIDRELAY
-/* <combine sack::DBG_PASS>
-   in NDEBUG mode, pass nothing */
-#define DBG_FILELINEFMT
-/* <combine sack::DBG_PASS>
-   in NDEBUG mode, pass nothing */
-#define DBG_FILELINEFMT_MIN
-/* <combine sack::DBG_PASS>
-   in NDEBUG mode, pass nothing
-   Example
-   printf( DBG_FILELINEFMT ": extra message" DBG_PASS ); */
-#define DBG_VARSRC
-#else
-	// these DBG_ formats are commented out from duplication in sharemem.h
-#  if defined( __LINUX__ ) && !defined( __PPCCPP__ )
-//#warning "Setting DBG_PASS and DBG_FORWARD to work."
-#  else
-//#pragma pragnoteonly("Setting DBG_PASS and DBG_FORWARD to work"  )
-#  endif
-// used to specify whether debug information is being passed - can be referenced in compiled code
-#define DBG_AVAILABLE   1
-/* <combine sack::DBG_PASS>
-   in _DEBUG mode, pass FILELINE_SRC */
-#define DBG_SRC         FILELINE_SRC
-/* <combine sack::DBG_PASS>
-   in _DEBUG mode, pass FILELINE_VOIDSRC */
-#define DBG_VOIDSRC     FILELINE_VOIDSRC
-/* <combine sack::DBG_PASS>
-   in _DEBUG mode, pass FILELINE_VOIDPASS */
-#define DBG_VOIDPASS    FILELINE_VOIDPASS
-/* <combine sack::DBG_PASS>
-   in NDEBUG mode, pass nothing */
-/* Example
-   This example shows forwarding debug information through a
-   chain of routines.
-   <code lang="c++">
-   void ReportFunction( int sum DBG_PASS )
-   {
-       printf( "%s(%d):started this whole mess\\n" DBG_RELAY );
-   }
-   void TrackingFunction( int a, int b DBG_PASS )
-   {
-       ReportFunction( a+b, DBG_RELAY );
-   }
-   void CallTrack( void )
-   {
-       TrackingFunction( 1, 2 DBG_SRC );
-   }
-   </code>
-   In this example, the debug information is passed to the
-   logging system. This allows logging to blame the user
-   application for allocations, releases, locks, etc...
-   <code lang="c++">
-   void MyAlloc( int size DBG_PASS )
-   {
-       _lprintf( DBG_RELAY )( ": alloc %d\\n", size );
-   }
-   void g( void )
-   {
-       lprintf( "Will Allocate %d\\n", 32 );
-       MyAlloc( 32 DBG_SRC );
-   }
-   </code>
-   This example uses the void argument macros
-   <code>
-   void SimpleFunction( DBG_VOIDPASS )
-   {
-       // this function usually has (void) parameters.
-   }
-   void f( void )
-   {
-       SimpleFunction( DBG_VOIDSRC );
-   }
-   </code>
-   Description
-   in NDEBUG mode, pass nothing.
-   This function allows specification of DBG_RELAY or DBG_SRC
-   under debug compilation. Otherwise, the simple AddLink macro
-   should be used. DBG_RELAY can be used to forward file and
-   line information which has been passed via DBG_PASS
-   declaration in the function parameters.
-   This is a part of a set of macros which allow additional
-   logging information to be passed.
-   These 3 are the most commonly used.
-   DBG_SRC - this passes the current __FILE__, __LINE__
-   \parameters.
-   DBG_PASS - this is used on a function declaration, is a
-   filename and line number from DBG_SRC or DBG_RELAY.
-   DBG_RELAY - this passes the file and line passed to this
-   function to another function with DBG_PASS defined on it.
-   DBG_VOIDPASS - used when the argument list is ( void )
-   without debugging information.
-   DBG_VOIDSRC - used to call a function who's argument list is
-   ( void ) without debugging information.
-   DBG_VOIDRELAY - pass file and line information forward to
-   another function, who's argument list is ( void ) without
-   debugging information.
-   Remarks
-   The SACK library is highly instrumented with this sort of
-   information. Very commonly the only difference between a
-   specific function called 'MyFunctionName' and
-   'MyFunctionNameEx' is the addition of debug information
-   tracking.
-   The following code blocks show the evolution added to add
-   instrumentation...
-   <code lang="c++">
-   int MyFunction( int param )
-   {
-       // do stuff
-   }
-   int CallingFunction( void )
-   {
-       return MyFunction();
-   }
-   </code>
-   Pretty simple code, a function that takes a parameter, and a
-   function that calls it.
-   The first thing is to extend the called function.
-   <code>
-   int MyFunctionEx( int param DBG_PASS )
-   {
-       // do stuff
-   }
-   </code>
-   And provide a macro for everyone else calling the function to
-   automatically pass their file and line information
-   <code lang="c++">
-   \#define MyFunction(param)  MyFunctionEx(param DBG_SRC)
-   </code>
-   Then all-together
-   <code>
-   \#define MyFunction(param)  MyFunctionEx(param DBG_SRC)
-   int MyFunctionEx( int param DBG_PASS )
-   {
-       // do stuff
-   }
-   int CallingFunction( void )
-   {
-       // and this person calling doesn't matter
-       // does require a recompile of source.
-       return MyFunction( 3 );
-   }
-   </code>
-   But then... what if CallingFunction decided wasn't really the
-   one at fault, or responsible for the allocation, or other
-   issue being tracked, then she could be extended....
-   <code>
-   int CallingFunctionEx( DBG_VOIDPASS )
-   \#define CallingFunction() CallingFunction( DBG_VOIDSRC )
-   {
-       // and this person calling doesn't matter
-       // does require a recompile of source.
-       return MyFunction( 1 DBG_RELAY );
-   }
-   </code>
-   Now, calling function will pass it's callers information to
-   MyFunction....
-   Why?
-   Now, when you call CreateList, your code callng the list
-   creation method is marked as the one who allocates the space.
-   Or on a DeleteList, rather than some internal library code
-   being blamed, the actual culprit can be tracked and
-   identified, because it's surely not the fault of CreateList
-   that the reference to the memory for the list wasn't managed
-   correctly.
-   Note
-   It is important to note, every usage of these macros does not
-   have a ',' before them. This allows non-debug code to
-   eliminate these extra parameters cleanly. If the ',' was
-   outside of the macro, then it would remain on the line, and
-   an extra parameter would have be be passed that was unused.
-   This is also why DBG_VOIDPASS exists, because in release mode
-   this is substituted with 'void'.
-   In Release mode, DBG_VOIDRELAY becomes nothing, but when in
-   debug mode, DBG_RELAY has a ',' in the macro, so without a
-   paramter f( DBG_RELAY ) would fail; on expansion this would
-   be f( , pFile, nLine ); (note the extra comma, with no
-   parameter would be a syntax error.                            */
-#define DBG_PASS        FILELINE_PASS
-/* <combine sack::DBG_PASS>
-   in _DEBUG mode, pass FILELINE_RELAY */
-#define DBG_RELAY       FILELINE_RELAY
-/* <combine sack::DBG_PASS>
-	  in _DEBUG mode, pass FILELINE_NULL */
-#define DBG_NULL        FILELINE_NULL
-/* <combine sack::DBG_PASS>
-   in _DEBUG mode, pass FILELINE_VOIDRELAY */
-#define DBG_VOIDRELAY   FILELINE_VOIDRELAY
-/* <combine sack::DBG_PASS>
-   in _DEBUG mode, pass FILELINE_FILELINEFMT */
-#define DBG_FILELINEFMT FILELINE_FILELINEFMT
-/* <combine sack::DBG_PASS>
-   in _DEBUG mode, pass FILELINE_FILELINEFMT_MIN */
-#define DBG_FILELINEFMT_MIN FILELINE_FILELINEFMT_MIN
-/* <combine sack::DBG_PASS>
-   in _DEBUG mode, pass FILELINE_VARSRC */
-#define DBG_VARSRC      FILELINE_VARSRC
-#endif
-// cannot declare _0 since that overloads the
-// vector library definition for origin (0,0,0,0,...)
-//typedef void             _0; // totally unusable to declare 0 size things.
-/* the only type other than when used in a function declaration that void is valid is as a pointer to void. no _0 type exists
-	 (it does, but it's in vectlib, and is an origin vector)*/
-typedef void             *P_0;
-/*
- * several compilers are rather picky about the types of data
- * used for bit field declaration, therefore this type
- * should be used instead of uint32_t (DWORD)
- */
-typedef unsigned int  BIT_FIELD;
-/*
- * several compilers are rather picky about the types of data
- * used for bit field declaration, therefore this type
- * should be used instead of int32_t (LONG)
- */
-typedef int  SBIT_FIELD;
-// have to do this on a per structure basis - otherwise
-// any included headers with structures to use will get
-// padded as normal; this is appended to a strcture
-// and is ued on GCC comiplers for __attribute__((packed))
-#ifndef PACKED
-#  define PACKED
-#endif
-/* An pointer to a volatile unsigned integer type that is 64 bits long. */
-//typedef volatile uint64_t  *volatile int64_t*;
-/* An pointer to a volatile pointer size type that is as long as a pointer. */
-typedef volatile uintptr_t        *PVPTRSZVAL;
-/* an unsigned type meant to index arrays.  (By convention, arrays are not indexed negatively.)  An index which is not valid is INVALID_INDEX, which equates to 0xFFFFFFFFUL or negative one cast as an INDEX... ((INDEX)-1). */
-typedef size_t         INDEX;
-/* An index which is not valid; equates to 0xFFFFFFFFUL or negative one cast as an INDEX... ((INDEX)-1). */
-#define INVALID_INDEX ((INDEX)-1)
-// constant text string content
-typedef const char     *CTEXTSTR;
-/* A non constant array of TEXTCHAR. A pointer to TEXTCHAR. A
-   pointer to non-constant characters. (A non-static string
-   probably)                                                  */
-typedef char           *TEXTSTR;
-#if defined( __LINUX__ ) && defined( __cplusplus )
-// pointer to constant text string content
-typedef TEXTSTR const  *PCTEXTSTR;
-#else
-// char const *const *
-typedef CTEXTSTR const *PCTEXTSTR;
-#endif
-/* a text 8 bit character  */
-typedef char            TEXTCHAR;
-/* a character rune.  Strings should be interpreted as UTF-8 or 16 depending on UNICODE compile option.
-   GetUtfChar() from strings.  */
-typedef uint32_t             TEXTRUNE;
-/* Used to handle returned values that are past end or beginning of string for instance */
-#define RUNE_AFTER_END     0x8000000
-#define RUNE_BEFORE_START  0x8000001
-/* Used to handle returned values that are invalid utf8 encodings. */
-#define BADUTF8            0xFFFD
-//typedef enum { FALSE, TRUE } LOGICAL; // smallest information
-#ifndef FALSE
-#define FALSE 0
-/* Define TRUE when not previously defined in the platform. TRUE
-   is (!FALSE) so anything not 0 is true.                        */
-#define TRUE (!FALSE)
-#endif
-/* Meant to hold boolean and only boolean values. Should be
-   implemented per-platform as appropriate for the bool type the
-   compiler provides.                                            */
-typedef uint32_t LOGICAL;
-/* This is a pointer. It is a void*. It is meant to point to a
-   single thing, and cannot be used to reference arrays of bytes
-   without recasting.                                            */
-typedef P_0 POINTER;
-/* This is a pointer to constant data. void const *. Compatible
-   with things like char const *.                               */
-typedef const void *CPOINTER;
-SACK_NAMESPACE_END
-//------------------------------------------------------
-// formatting macro defintions for [vsf]printf output of the above types
-#if !defined( _MSC_VER ) || ( _MSC_VER >= 1900 )
-#ifndef __STDC_FORMAT_MACROS
-#  define __STDC_FORMAT_MACROS
-#endif
-#include <inttypes.h>
-#endif
-SACK_NAMESPACE
-/* 16 bit unsigned decimal output printf format specifier. This would
-   otherwise be defined in \<inttypes.h\>                */
-#define _16f   "u"
-/* 16 bit hex output printf format specifier. This would
-   otherwise be defined in \<inttypes.h\>                */
-#define _16fx   "x"
-/* 16 bit HEX output printf format specifier. This would
-   otherwise be defined in \<inttypes.h\>                */
-#define _16fX   "X"
-/* 16 bit signed decimal output printf format specifier. This
-   would otherwise be defined in \<inttypes.h\>               */
-#define _16fs   "d"
-/* 8 bit unsigned decimal output printf format specifier. This would
-   otherwise be defined in \<inttypes.h\>                */
-#define _8f   "u"
-/* 8 bit hex output printf format specifier. This would
-   otherwise be defined in \<inttypes.h\>                */
-#define _8fx   "x"
-/* 8 bit HEX output printf format specifier. This would
-   otherwise be defined in \<inttypes.h\>                */
-#define _8fX   "X"
-/* 8 bit signed decimal output printf format specifier. This
-   would otherwise be defined in \<inttypes.h\>               */
-#define _8fs   "d"
-#if defined( __STDC_FORMAT_MACROS )
-#  define _32f   PRIu32
-#  define _32fx    PRIx32
-#  define _32fX    PRIX32
-#  define _32fs    PRId32
-#  define _64f    PRIu64
-#  define _64fx   PRIx64
-#  define _64fX   PRIX64
-#  define _64fs   PRId64
-#  define _64f    PRIu64
-#  define _64fx   PRIx64
-#  define _64fX   PRIX64
-#  define _64fs   PRId64
-// non-unicode strings
-#  define c_32f    PRIu32
-#  define c_32fx   PRIx32
-#  define c_32fX   PRIX32
-#  define c_32fs   PRId32
-#  define c_64f    PRIu64
-#  define c_64fx   PRIx64
-#  define c_64fX   PRIX64
-#  define c_64fs   PRId64
-#else
-#  define _32f   "u"
-#  define _32fx   "x"
-#  define _32fX   "X"
-#  define _32fs   "d"
-#  define c_32f   "u"
-#  define c_32fx  "x"
-#  define c_32fX  "X"
-#  define c_32fs  "d"
-#  define c_64f    "llu"
-#  define c_64fx   "llx"
-#  define c_64fX   "llX"
-#  define c_64fs   "lld"
-#endif
-#  define _cstring_f "s"
-#  define _string_f "s"
-#  define _ustring_f "S"
-#if defined( __64__ )
-#  if defined( __STDC_FORMAT_MACROS )
-#    if !defined( __GNUC__ ) || defined( _WIN32 )
-#      define _size_f     PRIu64
-#      define _size_fx    PRIx64
-#      define _size_fX    PRIX64
-#      define _size_fs    PRId64
-#      define c_size_f    PRIu64
-#      define c_size_fx   PRIx64
-#      define c_size_fX   PRIX64
-#      define c_size_fs   PRId64
-#    else
-#      define _size_f    "zu"
-#      define _size_fx   "zx"
-#      define _size_fX   "zX"
-#      define _size_fs   "zd"
-#      define c_size_f    "zu"
-#      define c_size_fx   "zx"
-#      define c_size_fX   "zX"
-#      define c_size_fs   "zd"
-#    endif
-#    define _PTRSZVALfs  PRIuPTR
-#    define _PTRSZVALfx  PRIxPTR
-#    define cPTRSZVALfs PRIuPTR
-#    define cPTRSZVALfx PRIxPTR
-#  else
-#    if !defined( __GNUC__ ) || defined( _WIN32 )
-#      define _size_f    _64f
-#      define _size_fx   _64fx
-#      define _size_fX   _64fX
-#      define _size_fs   _64fs
-#      define c_size_f   c_64f
-#      define c_size_fx  c_64fx
-#      define c_size_fX  c_64fX
-#      define c_size_fs  c_64fs
-#    else
-#      define _size_f    "zu"
-#      define _size_fx   "zx"
-#      define _size_fX   "zX"
-#      define _size_fs   "zd"
-#      define c_size_f    "zu"
-#      define c_size_fx   "zx"
-#      define c_size_fX   "zX"
-#      define c_size_fs   "zd"
-#    endif
-#    define _PTRSZVALfs  PRIuPTR
-#    define _PTRSZVALfx  PRIxPTR
-#    define cPTRSZVALfs PRIuPTR
-#    define cPTRSZVALfx PRIxPTR
-#  endif
-#else
-#  if defined( __STDC_FORMAT_MACROS )
-      // this HAS been fixed in UCRT - 2015!  but it'll take 5 years before everyone has that...
-#    if !defined( __GNUC__ ) || defined( _WIN32 )
-#      define _size_f     PRIu32
-#      define _size_fx    PRIx32
-#      define _size_fX    PRIX32
-#      define _size_fs    PRId32
-#      define c_size_f    PRIu32
-#      define c_size_fx   PRIx32
-#      define c_size_fX   PRIX32
-#      define c_size_fs   PRId32
-#    else
-#      define _size_f    "zu"
-#      define _size_fx   "zx"
-#      define _size_fX   "zX"
-#      define _size_fs   "zd"
-#      define c_size_f    "zu"
-#      define c_size_fx   "zx"
-#      define c_size_fX   "zX"
-#      define c_size_fs   "zd"
-#    endif
-#    define _PTRSZVALfs  PRIuPTR
-#    define _PTRSZVALfx  PRIxPTR
-#    define cPTRSZVALfs PRIuPTR
-#    define cPTRSZVALfx PRIxPTR
-#  else
-      // this HAS been fixed in UCRT - 2015!  but it'll take 5 years before everyone has that...
-#    if !defined( __GNUC__ ) || defined( _WIN32 )
-#      define _size_f    _32f
-#      define _size_fx   _32fx
-#      define _size_fX   _32fX
-#      define _size_fs   _32fs
-#      define c_size_f    c_32f
-#      define c_size_fx   c_32fx
-#      define c_size_fX   c_32fX
-#      define c_size_fs   c_32fs
-#    else
-#      define _size_f    "zu"
-#      define _size_fx   "zx"
-#      define _size_fX   "zX"
-#      define _size_fs   "zd"
-#      define c_size_f    "zu"
-#      define c_size_fx   "zx"
-#      define c_size_fX   "zX"
-#      define c_size_fs   "zd"
-#    endif
-#    define _PTRSZVALfs  PRIuPTR
-#    define _PTRSZVALfx  PRIxPTR
-#    define cPTRSZVALfs PRIuPTR
-#    define cPTRSZVALfx PRIxPTR
-#  endif
-#endif
-#define PTRSZVALf "p"
-#define _PTRSZVALf "p"
-#if defined( _MSC_VER ) && ( _MSC_VER < 1900 )
-/* 64 bit unsigned decimal output printf format specifier. This would
-   otherwise be defined in \<inttypes.h\> as PRIu64              */
-#define _64f    "llu"
-/* 64 bit hex output printf format specifier. This would
-   otherwise be defined in \<inttypes.h\> as PRIxFAST64                */
-#define _64fx   "llx"
-/* 64 bit HEX output printf format specifier. This would
-   otherwise be defined in \<inttypes.h\> as PRIxFAST64                */
-#define _64fX   "llX"
-/* 64 bit signed decimal output printf format specifier. This
-   would otherwise be defined in \<inttypes.h\> as PRIdFAST64               */
-#define _64fs   "lld"
-#endif
-// This should be for several years a
-// sufficiently large type to represent
-// threads and processes.
-typedef uint64_t THREAD_ID;
-#define GetMyThreadIDNL GetMyThreadID
-#if defined( _WIN32 )
-#  define _GetMyThreadID()  ( (( ((uint64_t)GetCurrentProcessId()) << 32 ) | ( (uint64_t)GetCurrentThreadId() ) ) )
-#  define GetMyThreadID()  (GetThisThreadID())
-#else
-// this is now always the case
-// it's a safer solution anyhow...
-#  ifdef __MAC__
-     DeclareThreadLocal uint64_t tmpThreadid;
-#    define GetMyThreadID()  ((pthread_threadid_np(NULL, &tmpThreadid)),tmpThreadid)
-#  else
-#    ifndef GETPID_RETURNS_PPID
-#      define GETPID_RETURNS_PPID
-#    endif
-#    ifdef GETPID_RETURNS_PPID
-#      ifdef __ANDROID__
-#        define GetMyThreadID()  (( ((uint64_t)getpid()) << 32 ) | ( (uint64_t)(gettid()) ) )
-#      else
-#        if defined( __EMSCRIPTEN__ )
-#          define GetMyThreadID()  ( (uint64_t)(pthread_self()) )
-#        else
-#          define GetMyThreadID()  (( ((uint64_t)getpid()) << 32 ) | ( (uint64_t)(syscall(SYS_gettid)) ) )
-#        endif
-#      endif
-#    else
-#      define GetMyThreadID()  (( ((uint64_t)getppid()) << 32 ) | ( (uint64_t)(getpid()|0x40000000)) )
-#    endif
-#  endif
-#  define _GetMyThreadID GetMyThreadID
-#endif
-//---------------------- Declare Link; 'single and a half'ly-linked lists -----------------------
-// Thse macros are for linking and unlininking things in a linked list.
-// The list is basically a singly-linked list, but also references the pointer that
-// is pointing at the current node.  This simplifies insert/remove operations, because
-// the specific list that the node is in, is not required.
-// List heads will always be updated correctly.
-//
-// A few 'tricks' are available, such as
-//     0) These are deemed dangerous; and uncomprehendable by anyone but the maintainer.
-//        use at your own time and expense required to explain WHY these work.
-//     1) when declaring a root node, include another node before it, and it's
-//        simple to make this a circularly linked list.
-//     2) defining DeclareLink at the start of the strcture, the 'me' pointer
-//        also happens to be 'prior', so you can step through the list in both
-//        directions.
-//
-//
-//
-// struct my_node {
-//    DeclareLink( struct my_node );
-//    // ...
-// };
-//
-// that declares
-//      struct my_node *next;  // the next node in list.
-//      struct my_node **me;   // address of the pointer pointing to 'me';
-//
-//
-//  struct my_node *root; // a root of a list of my_node.  It should be initialized to NULL.
-//
-//  struct my_node *newNode = (struct my_node*)malloc( sizeof( *newNode ) );
-//     // does not require next or me to be initiialized.
-//  LinkThing( root, newNode );
-//     // now newNode is in the list.
-//
-//  to remove from a list
-//
-//  struct my_node *someNode; // this should be a pointer to some valid node.
-//  UnlinkThing( someNode );
-//     The new node is now not in the list.
-//
-//  To move one node from one list to another
-//
-//   struct my_node *rootAvail;  // available nodes
-//   struct my_node *rootUsed;   // nodes in use
-//
-//   struct my_node *someNode; // some node in a list
-//   someNode = rootAvail; // get first available.
-//   if( !someNode ) ; // create a new one or abort
-//   RelinkThing( rootUsed, someNode );
-//      'someNode' is removed from its existing list, and added to the 'rootUsed' list.
-//
-// For Declaring the link structure members for lists
-#define DeclareLink( type )  type *next; type **me
-/* Link a new node into the list.
-   Example
-   struct mynode
-   {
-       DeclareLink( struct mynode );
-   } *node;
-	struct mynode *list;
-   // node allocation not shown.
-	LinkThing( list_root, node );
-*/
-#define LinkThing( root, node )		     ((( (node)->next = (root) )?	        (((root)->me) = &((node)->next)):0),	  (((node)->me) = &(root)),	             ((root) = (node)) )
-/* Link a node to the end of a list. LinkThing() inserts the new
- node as the new head of the list.
- this has to scan the list to find the end, so it is a O(n) operation.
- All other linked list operations are O(1)
- */
-#define LinkLast( root, type, node ) if( node ) do { if( !root )	 { root = node; (node)->me=&root; }	 else { type tmp;	 for( tmp = root; tmp->next; tmp = tmp->next );	 tmp->next = (node);	 (node)->me = &tmp->next;	 } } while (0)
-// put 'Thing' after 'node'
-// inserts 'node' after Thing
-#define LinkThingAfter( node, thing )	 ( ( (thing)&&(node))	   ?(((((thing)->next = (node)->next))?((node)->next->me = &(thing)->next):0)	  ,((thing)->me = &(node)->next), ((node)->next = thing))	  :((node)=(thing)) )
-//
-// put 'Thing' before 'node'... so (*node->me) = thing
-// similar to LinkThingAfter but puts the new 'thing'
-// before the 'node' specified.
-#define LinkThingBefore( node, thing )	 {  thing->next = (*node->me);	(*node->me) = thing;    thing->me = node->me;       node->me = &thing->next;     }
-// move a list from one list to another.
-// unlinks node from where it was, inserts at the head of another.
-// this can also be use to reproiritize within the same list.
-#define RelinkThing( root, node )	   ((( node->me && ( (*node->me)=node->next ) )?	  node->next->me = node->me:0),(node->next = NULL),(node->me = NULL),node),	 ((( node->next = root )?	        (root->me = &node->next):0),	  (node->me = &root),	             (root = node) )
-/* Remove a node from a list. Requires only the node. */
-#define UnlinkThing( node )	                      ((( (node) && (node)->me && ( (*(node)->me)=(node)->next ) )?	  (node)->next->me = (node)->me:0),((node)->next = NULL),((node)->me = NULL),(node))
-// this has two expressions duplicated...
-// but in being so safe in this expression,
-// the self-circular link needs to be duplicated.
-// GrabThing is used for nodes which are circularly bound
-#define GrabThing( node )	    ((node)?(((node)->me)?(((*(node)->me)=(node)->next)?	 ((node)->next->me=(node)->me),((node)->me=&(node)->next):NULL):((node)->me=&(node)->next)):NULL)
-/* Go to the next node with links declared by DeclareLink
- safe iterator macro that tests if node is valid, which returns
- the next item in the list, else returns NULL
- */
-#define NextLink(node) ((node)?(node)->next:NULL)
-// everything else is called a thing... should probably migrate to using this...
-#define NextThing(node) ((node)?(node)->next:NULL)
-//----------- FLAG SETS (single bit fields) -----------------
-/* the default type to use for flag sets - flag sets are arrays of bits
- which can be set/read with/as integer values an index.
- All of the fields in a maskset are the same width */
-#define FLAGSETTYPE uintmax_t
-/* the number of bits a specific type is.
-   Example
-   int bit_size_int = FLAGTYPEBITS( int ); */
-#define FLAGTYPEBITS(t) (sizeof(t)*CHAR_BIT)
-/* how many bits to add to make sure we round to the next greater index if even 1 bit overflows */
-#define FLAGROUND(t) (FLAGTYPEBITS(t)-1)
-/* the index of the FLAGSETTYPE which contains the bit in question */
-#define FLAGTYPE_INDEX(t,n)  (((n)+FLAGROUND(t))/FLAGTYPEBITS(t))
-/* how big the flag set is in count of FLAGSETTYPEs required in a row ( size of the array of FLAGSETTYPE that contains n bits) */
-#define FLAGSETSIZE(t,n) (FLAGTYPE_INDEX(t,n) * sizeof( FLAGSETTYPE ) )
-// declare a set of flags...
-#define FLAGSET(v,n)   FLAGSETTYPE (v)[((n)+FLAGROUND(FLAGSETTYPE))/FLAGTYPEBITS(FLAGSETTYPE)]
-// set a single flag index
-#define SETFLAG(v,n)   ( ( (v)[(n)/FLAGTYPEBITS((v)[0])] |= (FLAGSETTYPE)1 << ( (n) & FLAGROUND((v)[0]) )),1)
-// clear a single flag index
-#define RESETFLAG(v,n) ( ( (v)[(n)/FLAGTYPEBITS((v)[0])] &= ~( (FLAGSETTYPE)1 << ( (n) & FLAGROUND((v)[0]) ) ) ),0)
-// test if a flags is set
-//  result is 0 or not; the value returned is the bit shifted within the word, and not always '1'
-#define TESTFLAG(v,n)  ( (v)[(n)/FLAGTYPEBITS((v)[0])] & ( (FLAGSETTYPE)1 << ( (n) & FLAGROUND((v)[0]) ) ) )
-// reverse a flag from 1 to 0 and vice versa
-// return value is undefined... and is a whole bunch of flags from some offset...
-// if you want ot toggle and flag and test the result, use TESTGOGGLEFLAG() instead.
-#define TOGGLEFLAG(v,n)   ( (v)[(n)/FLAGTYPEBITS((v)[0])] ^= (FLAGSETTYPE)1 << ( (n) & FLAGROUND((v)[0]) ))
-// Toggle a bit, return the state of the bit after toggling.
-#define TESTTOGGLEFLAG(v,n)  ( TOGGLEFLAG(v,n), TESTFLAG(v,n) )
-//----------- MASK SETS -----------------
-//  MASK Sets are arrays of bit-fields of some bit-width (5, 3, ... )
-//  they are set/returned as integer values.
-//  They are stored-in/accessed via a uint8_t which gives byte-offset calculations.
-// they return their value as uintmax_t from the offset memory address directly;
-//   Some platforms(Arm) may SIGBUS because of wide offset accesses spanning word boundaries.
-//   This issue may be fixed by rounding, grabbing the word aligned values and shifting manually
-// Declarataion/Instantiation of a mask set is done with MASKSET macro below
-// 32 bits max for range on mask
-#define MASK_MAX_LENGTH (sizeof(MASKSET_READTYPE)*CHAR_BIT)
-/* gives a 32 bit mask possible from flagset..
- - updated; return max int possible; but only the low N bits will be set
- - mask sets are meant for small values, but could be used for like 21 bit fields. (another form of unicode encoding I suppose)
- */
-#define MASKSET_READTYPE uintmax_t
-// gives byte index...
-#define MASKSETTYPE uint8_t
-/* how many bits the type specified can hold
-   Parameters
-   t :  data type to measure (int, uint32_t, ... ) */
-#define MASKTYPEBITS(t) (sizeof(t)*CHAR_BIT)
-/* the maximum number of bits storable in a type */
-#define MASK_MAX_TYPEBITS(t) (sizeof(t)*CHAR_BIT)
-/* round up to the next count of types that fits 1 bit - used as a cieling round factor */
-#define MASKROUND(t) (MASKTYPEBITS(t)-1)
-/* define MAX_MAX_ROUND factor based on MASKSET_READTYPE - how to read it... */
-#define MASK_MAX_ROUND() (MASK_MAX_TYPEBITS(MASKSET_READTYPE)-1)
-/* byte index of the start of the mask
-   Parameters
-   t :  type to measure with
-   n :  mask index                     */
-#define MASKTYPE_INDEX(t,n)  (((n)+MASKROUND(t))/MASKTYPEBITS(t))
-/* The number of bytes the set would be.
-   Parameters
-   t :  the given type to measure with
-   n :  the count of masks to fit.       */
-#define MASKSETSIZE(t,n) (MASKTYPE_INDEX(t,(n+1)))
-// declare a set of flags...
-#define MASK_TOP_MASK_VAL(length,val) ((val)&( ((MASKSET_READTYPE)-1) >> ((sizeof(MASKSET_READTYPE) * CHAR_BIT)-(length)) ))
-/* the mask in the dword resulting from shift-right.   (gets a mask of X bits in length) */
-#define MASK_TOP_MASK(length) ( ((MASKSET_READTYPE)-1) >> ((sizeof(MASKSET_READTYPE) * CHAR_BIT)-(length)) )
-/* the mast in the dword shifted to the left to overlap the field in the word */
-#define MASK_MASK(n,length)   (MASK_TOP_MASK(length) << (((n)*(length)) & (sizeof(MASKSET_READTYPE) - 1) ) )
-// masks value with the mask size, then applies that mask back to the correct word indexing
-#define MASK_MASK_VAL(n,length,val)   (MASK_TOP_MASK_VAL(length,val) << (((n)*(length))&(sizeof(MASKSET_READTYPE) - 1)) )
-/* declare a mask set.
- MASKSET( maskVariableName
-        , 32 //number of items
-		  , 5 // number of bits per field
-		  );
-   declares
-	uint8_t maskVariableName[ (32*5 +(CHAR_BIT-1))/CHAR_BIT ];  //data array used for storage.
-   const int askVariableName_mask_size = 5;  // used aautomatically by macros
-*/
-#define MASKSET(v,n,r)  MASKSETTYPE  (v)[(((n)*(r))+MASK_MAX_ROUND())/MASKTYPEBITS(MASKSETTYPE)]; const int v##_mask_size = r
-#define MASKSET_(v,n,r)  MASKSETTYPE  (v)[(((n)*(r))+MASK_MAX_ROUND())/MASKTYPEBITS(MASKSETTYPE)]
-/* set a field index to a value
-    SETMASK( askVariableName, 3, 13 );  // set set member 3 to the value '13'
- */
-#define SETMASK(v,n,val)    (((MASKSET_READTYPE*)((v)+((n)*(v##_mask_size))/MASKTYPEBITS((v)[0])))[0] =    ( ((MASKSET_READTYPE*)((v)+((n)*(v##_mask_size))/MASKTYPEBITS(uint8_t)))[0]                                  & (~(MASK_MASK(n,v##_mask_size))) )	                                                                           | MASK_MASK_VAL(n,v##_mask_size,val) )
-#define SETMASK_(v,v2,n,val)    (((MASKSET_READTYPE*)((v)+((n)*(v2##_mask_size))/MASKTYPEBITS((v)[0])))[0] =    ( ((MASKSET_READTYPE*)((v)+((n)*(v2##_mask_size))/MASKTYPEBITS(uint8_t)))[0]                                  & (~(MASK_MASK(n,v2##_mask_size))) )	                                                                           | MASK_MASK_VAL(n,v2##_mask_size,val) )
-/* get the value of a field
-     GETMASK( maskVariableName, 3 );   // returns '13' given the SETMASK() example code.
- */
-#define GETMASK(v,n)  ( ( ((MASKSET_READTYPE*)((v)+((n)*(v##_mask_size))/MASKTYPEBITS((v)[0])))[0]         & MASK_MASK(n,v##_mask_size) )	                                                                           >> (((n)*(v##_mask_size))&(sizeof(MASKSET_READTYPE) - 1)))
-#define GETMASK_(v,v2,n)  ( ( ((MASKSET_READTYPE*)((v)+((n)*(v2##_mask_size))/MASKTYPEBITS((v)[0])))[0]         & MASK_MASK(n,v2##_mask_size) )	                                                                           >> (((n)*(v2##_mask_size))&(sizeof(MASKSET_READTYPE) - 1)))
-/* This type stores data, it has a self-contained length in
-   bytes of the data stored.  Length is in characters       */
-_CONTAINER_NAMESPACE
-/* LIST is a slab array of pointers, each pointer may be
-   assigned to point to any user data.
-   Remarks
-   When the list is filled to the capacity of Cnt elements, the
-   list is reallocated to be larger.
-   Cannot add NULL pointer to list, empty elements in the list
-   are represented with NULL, and may be filled by any non-NULL
-   value.                                                       */
-_LINKLIST_NAMESPACE
-/* <combine sack::containers::list::LinkBlock>
-   \ \                                         */
-typedef struct LinkBlock
-{
-	/* How many pointers the list can contain now. */
-	INDEX     Cnt;
-	/* \ \  */
-	POINTER pNode[1];
-} LIST, *PLIST;
-_LINKLIST_NAMESPACE_END
-#ifdef __cplusplus
-using namespace sack::containers::list;
-#endif
-_DATALIST_NAMESPACE
-/* a list of data structures... a slab array of N members of X size */
-typedef struct DataBlock  DATALIST;
-/* A typedef of a pointer to a DATALIST struct DataList. */
-typedef struct DataBlock *PDATALIST;
-/* Data Blocks are like LinkBlocks, and store blocks of data in
-   slab format. If the count of elements exceeds available, the
-   structure is grown, to always contain a continuous array of
-   structures of Size size.
-   Remarks
-   When blocks are deleted, all subsequent blocks are shifted
-   down in the array. So the free blocks are always at the end. */
-struct DataBlock
-{
-	/* How many elements are used. */
-	INDEX     Cnt;
-	/* How many elements are available in his array. */
-	INDEX     Avail;
-	/* A simple exchange lock on the data for insert and delete. For
-	   thread safety.                                                */
-	//volatile uint32_t     Lock;
-	/* How big each element of the array is. */
-	INDEX     Size;
-	/* The physical array. */
-	uint8_t      data[1];
-};
-_DATALIST_NAMESPACE_END
-/* This is a stack that contains pointers to user objects.
-   Remarks
-   This is a stack 'by reference'. When extended, the stack will
-   occupy different memory, care must be taken to not duplicate
-   pointers to this stack.                                       */
-typedef struct LinkStack
-{
-	/* This is the index of the next pointer to be pushed or popped.
-	   If top == 0, the stack is empty, until a pointer is added and
-	   top is incremented.                                           */
-	INDEX     Top;
-	/* How many pointers the stack can contain. */
-	INDEX     Cnt;
-	/* thread interlock using InterlockedExchange semaphore. For
-	                  thread safety.                                            */
-	//volatile uint32_t     Lock;
-	/*  a defined maximum capacity of stacked values... values beyond this are lost from the bottom  */
-	uint32_t     Max;
-	/* Reserved data portion that stores the pointers. */
-	POINTER pNode[1];
-} LINKSTACK, *PLINKSTACK;
-/* A Stack that stores information in an array of structures of
-   known size.
-   Remarks
-   The size of each element must be known at stack creation
-   time. Structures are literally copied to and from this stack.
-   This is a stack 'by value'. When extended, the stack will
-   occupy different memory, care must be taken to not duplicate
-   pointers to this stack.                                       */
-typedef struct DataListStack
-{
-	volatile INDEX     Top;
- /* enable logging the program executable (probably the same for
-	                all messages, unless they are network)
-	                                                                             */
- // How many elements are on the stack.
-	INDEX     Cnt;
-	//volatile uint32_t     Lock;  /* thread interlock using InterlockedExchange semaphore. For
-	//                  thread safety.                                            */
-	INDEX     Size;
-	INDEX     Max;
-	uint8_t      data[1];
-} DATASTACK, *PDATASTACK;
-/* A queue which contains pointers to user objects. If the queue
-   is filled to capacity and new queue is allocated, and all
-   existing pointers are transferred.                            */
-typedef struct LinkQueue
-{
-	/* This is the index of the next pointer to be added to the
-	   queue. If Top==Bottom, then the queue is empty, until a
-	   pointer is added to the queue, and Top is incremented.   */
-	volatile INDEX     Top;
-	/* This is the index of the next element to leave the queue. */
-	volatile INDEX     Bottom;
-	/* This is the current count of pointers that can be stored in
-	   the queue.                                                  */
-	INDEX     Cnt;
-	/* thread interlock using InterlockedExchange semaphore. For
-	   thread safety.                                            */
-#if USE_CUSTOM_ALLOCER
-	volatile uint32_t     Lock;
-#endif
- // need two to have distinct empty/full conditions
-	POINTER pNode[2];
-} LINKQUEUE, *PLINKQUEUE;
-/* A queue of structure elements.
-   Remarks
-   The size of each element must be known at stack creation
-   time. Structures are literally copied to and from this stack.
-   This is a stack 'by value'. When extended, the stack will
-   occupy different memory, care must be taken to not duplicate
-   pointers to this stack.                                       */
-typedef struct DataQueue
-{
-	/* This is the next index to be added to. If Top==Bottom, the
-	   queue is empty, until an entry is added at Top, and Top
-	   increments.                                                */
-	volatile INDEX     Top;
-	/* The current bottom index. This is the next one to be
-	   returned.                                            */
-	volatile INDEX     Bottom;
-	/* How many elements the queue can hold. If a queue has more
-	   elements added to it than it has count, it will be expanded,
-	   and a new queue returned.                                    */
-	INDEX     Cnt;
-	/* thread interlock using InterlockedExchange semaphore */
-	//volatile uint32_t     Lock;
-	/* How big each element in the queue is. */
-	INDEX     Size;
-	/* How many elements to expand the queue by, when its capacity
-	   is reached.                                                 */
-	INDEX     ExpandBy;
-	/* The data area of the queue. */
-	uint8_t      data[1];
-} DATAQUEUE, *PDATAQUEUE;
-/* A mostly obsolete function, but can return the status of
-   whether all initially scheduled startups are completed. (Or
-   maybe whether we are not complete, and are processing
-   startups)                                                   */
-_CONTAINER_NAMESPACE_END
-SACK_NAMESPACE_END
-/* This contains the methods to use the base container types
-   defined in sack_types.h.                                  */
-#ifndef LINKSTUFF
-#define LINKSTUFF
-	SACK_NAMESPACE
-	_CONTAINER_NAMESPACE
-#    define TYPELIB_CALLTYPE
-#  if defined( _TYPELIBRARY_SOURCE_STEAL )
-#    define TYPELIB_PROC extern
-#  elif defined( NO_EXPORTS )
-#    if defined( _TYPELIBRARY_SOURCE )
-#      define TYPELIB_PROC
-#    else
-#      define TYPELIB_PROC extern
-#    endif
-#  elif defined( _TYPELIBRARY_SOURCE )
-#    define TYPELIB_PROC EXPORT_METHOD
-#  else
-#    define TYPELIB_PROC IMPORT_METHOD
-#  endif
-_LINKLIST_NAMESPACE
-//--------------------------------------------------------
-TYPELIB_PROC  PLIST TYPELIB_CALLTYPE        CreateListEx   ( DBG_VOIDPASS );
-/* Destroy a PLIST. */
-TYPELIB_PROC  PLIST TYPELIB_CALLTYPE        DeleteListEx   ( PLIST *plist DBG_PASS );
-/* See <link AddLink>.
-   See <link DBG_PASS>. */
-TYPELIB_PROC  PLIST TYPELIB_CALLTYPE        AddLinkEx      ( PLIST *pList, POINTER p DBG_PASS );
-/* Sets the value of a link at the specified index.
-   Parameters
-   pList :     address of a PLIST
-   idx :       index of the element to set
-   p :         new link value to be set at the specified index
-   DBG_PASS :  debug file and line information                 */
-TYPELIB_PROC  PLIST TYPELIB_CALLTYPE        SetLinkEx      ( PLIST *pList, INDEX idx, POINTER p DBG_PASS );
-/* Gets the link at the specified index.
-   Parameters
-   pList :  address of a PLIST pointer.
-   idx :    index to get the link from.  */
-TYPELIB_PROC  POINTER TYPELIB_CALLTYPE      GetLink        ( PLIST *pList, INDEX idx );
-/* Gets the address of the link node in the PLIST.
-   Parameters
-   pList :  address of a PLIST to get the node address
-   idx :    index of the node to get the adddress of
-   Example
-   <code lang="c++">
-   PLIST list = NULL; // don't have to use CreateList();
-   POINTER *a;
-   POINTER b;
-   POINTER *result;
-   a = &amp;b;
-   AddLink( &amp;list, a );
-   \result = GetLinkAddress( &amp;list, 0 );
-    ( (*result) == b )
-   </code>                                               */
-TYPELIB_PROC  POINTER* TYPELIB_CALLTYPE     GetLinkAddress ( PLIST *pList, INDEX idx );
-/* Locate a pointer in a PLIST. Return the index.
-   Parameters
-   pList :  address of a list pointer to locate link
-   value :  link to find in the list
-   Return Value List
-   INVALID_INDEX :  Not found in the list
-   0\-n :           Index of the first occurance of the link in the
-                    list.                                           */
-TYPELIB_PROC  INDEX TYPELIB_CALLTYPE        FindLink       ( PLIST *pList, POINTER value );
-/* return the count of used members in a PLIST
-    pList : the list to count
-	Return Value
-	   number of things in the list.
-*/
-TYPELIB_PROC  INDEX TYPELIB_CALLTYPE        GetLinkCount   ( PLIST pList );
-/* Uses FindLink on the list for the value to delete, and then
-   sets the index of the found link to NULL.
-   Parameters
-   pList :  Address of a PLIST pointer
-   value :  the link to find and remove from the list.
-   Example
-   <code lang="c++">
-   PLIST list = NULL;
-	POINTER a = &#47;*some address*&#47;;
-   </code>
-   <code>
-   AddLink( &amp;list, a );
-   DeleteLink( &amp;list, a );
-   </code>                                                     */
-TYPELIB_PROC  LOGICAL TYPELIB_CALLTYPE      DeleteLink     ( PLIST *pList, CPOINTER value );
-/* Remove all links from a PLIST. */
-TYPELIB_PROC  void TYPELIB_CALLTYPE         EmptyList      ( PLIST *pList );
-#ifdef __cplusplus
-/* This was a basic attempt to make list into a C++ class. I
-   gave up doing this sort of thing afterwards after realizing
-   the methods of a library and these static methods for a class
-   aren't much different.                                        */
-#  if defined( INCLUDE_SAMPLE_CPLUSPLUS_WRAPPERS )
-typedef class iList
-{
-public:
-	PLIST list;
-	INDEX idx;
-	inline iList() { list = CreateListEx( DBG_VOIDSRC ); }
-	inline ~iList() { DeleteListEx( &list DBG_SRC ); }
-	inline iList &operator+=( POINTER &p ){ AddLinkEx( &list, p DBG_SRC ); return *this; }
-	inline void add( POINTER p ) { AddLinkEx( &list, p DBG_SRC ); }
-	inline void remove( POINTER p ) { DeleteLink( &list, p ); }
-	inline POINTER first( void ) { POINTER p; for( idx = 0, p = NULL;list && (idx < list->Cnt) && (( p = GetLink( &list, idx ) )==0); )idx++; return p; }
-	inline POINTER next( void ) { POINTER p; for( idx++;list && (( p = GetLink( &list, idx ) )==0) && idx < list->Cnt; )idx++; return p; }
-	inline POINTER get(INDEX index) { return GetLink( &list, index ); }
-} *piList;
-#  endif
-#endif
-// address of the thing...
-typedef uintptr_t (CPROC *ForProc)( uintptr_t user, INDEX idx, POINTER *item );
-// if the callback function returns non 0 - then the looping is aborted,
-// and the value is returned... the user value is passed to the callback.
-TYPELIB_PROC  uintptr_t TYPELIB_CALLTYPE     ForAllLinks    ( PLIST *pList, ForProc func, uintptr_t user );
-/* This is a iterator which can be used to check each member in
-   a PLIST.
-   Parameters
-   list :     List to iterate through
-   index :    variable to use to index the list
-   type :     type of the elements stored in the list (for C++)
-   pointer :  variable used to get the current member of the
-              list.
-   Example
-   <code lang="c++">
-   POINTER p;  // the pointer to receive the list member pointer (should be a user type)
-   INDEX idx; // indexer
-   PLIST pList; // some list.
-   LIST_FORALL( pList, idx, POINTER, p )
-   {
-       // p will never be NULL here.
-       // each link stored in the list is set to p here..
-       // this is a way to remove this item from the list...
-       SetLink( &amp;pList, idx, NULL );
-       if( some condition )
-          break;
-   }
-   </code>
-   Another example that uses data and searches..
-   <code lang="c++">
-   PLIST pList = NULL;
-   INDEX idx;
-   CTEXTSTR string;
-   AddLink( &amp;pList, (POINTER)"hello" );
-   </code>
-   <code>
-   AddLink( &amp;pList, (POINTER)"world" );
-   LITS_FORALL( pList, idx, CTEXTSTR, string )
-   {
-       if( strcmp( string, "hello" ) == 0 )
-           break;
-   }
-   // here 'string' will be NULL if not found, else will be what was found
-   </code>
-   Remarks
-   This initializes the parameters passed to the macro so that
-   if the list is NULL or empty, then p will be set to NULL. If
-   there are no non-nulll members in the list, p will be set to
-   NULL. If you break in the loop, like in the case of searching
-   the list for something, then p will be non-null at the end of
-   the loop.
-                                                                                         */
-#define LIST_FORALL( l, i, t, v )  if(((v)=(t)NULL),(l))                                                        for( ((i)=0); ((i) < ((l)->Cnt))?                                         (((v)=(t)(uintptr_t)((l)->pNode[i])),1):(((v)=(t)NULL),0); (i)++ )  if( v )
-/* This can be used to continue iterating through a list after a
-   LIST_FORALL has been interrupted.
-   Parameters
-   list :     \Description
-   index :    index variable for stepping through the list
-   type :     type of the members in the list.
-   pointer :  variable name to use to store the the current list
-              element.
-   Example
-   <code lang="c++">
-   PLIST pList = NULL;
-   CTEXTSTR p;
-   INDEX idx;
-   </code>
-   <code>
-   AddLink( &amp;pList, "this" );
-   AddLink( &amp;pList, "is" );
-   AddLink( &amp;pList, "a" );
-   AddLink( &amp;pList, "test" );
-   LIST_FORALL( pList, idx, CTEXTSTR, p )
-   {
-       if( strcmp( p, "is" ) == 0 )
-           break;
-   }
-   LIST_NEXTALL( pList, idx, CTEXTSTR, p )
-   {
-       printf( "remaining element : %s", p );
-   }
-   </code>
-   <code lang="c++">
-   j
-   </code>                                                       */
-#define LIST_NEXTALL( l, i, t, v )  if(l)                for( ++(i),((v)=(t)NULL); ((i) < ((l)->Cnt))?     (((v)=(t)(l)->pNode[i]),1):(((v)=(t)NULL),0); (i)++ )  if( v )
-/* <combine sack::containers::list::CreateListEx@DBG_VOIDPASS>
-   \ \                                                         */
-#define CreateList()       ( CreateListEx( DBG_VOIDSRC ) )
-/* <combine sack::containers::list::DeleteListEx@PLIST *plist>
-   \ \                                                         */
-#ifndef FIX_RELEASE_COM_COLLISION
-#  define DeleteList(p)      ( DeleteListEx( (p) DBG_SRC ) )
-#endif
-/* Adds a pointer to a user object to a list.
-   Example
-   <code lang="c++">
-   // the list can be initialized to NULL,
-   // it does not have to be assigned the result of a CreateList().
-   // this allows the list to only be allocated if it is used.
-   PLIST list = NULL;
-   AddLink( &amp;list, (POINTER)user_pointer );
-   {
-       POINTER p; // this should be USER_DATA_TYPE *p;
-       INDEX idx; // just a generic counter.
-       LIST_FORALL( list, idx, POINTER, p )
-       {
-           // for each item in the list, p will be not null.
-           if( p-\>something == some_other_thing )
-               break;
-       }
-       // p will be NULL if the list is empty
-       // p will be NULL if the LIST_FORALL loop completes to termination.
-       // p will be not NULL if the LIST_FORALL loop executed a 'break;'
-   }
-   </code>                                                                 */
-#define AddLink(p,v)       ( AddLinkEx( (p),((POINTER)(v)) DBG_SRC ) )
-/* <combine sack::containers::list::SetLinkEx@PLIST *@INDEX@POINTER p>
-   \ \                                                                 */
-#define SetLink(p,i,v)     ( SetLinkEx( (p),(i),((POINTER)(v)) DBG_SRC ) )
-#ifdef __cplusplus
- //		namespace list;
-	}
-#endif
-//--------------------------------------------------------
-_DATALIST_NAMESPACE
-/* Creates a data list which hold data elements of the specified
-   size.
-                                                                 */
-TYPELIB_PROC  PDATALIST TYPELIB_CALLTYPE  CreateDataListEx ( uintptr_t nSize DBG_PASS );
-/* <combine sack::containers::data_list::DeleteDataList>
-   \ \                                                   */
-TYPELIB_PROC  void TYPELIB_CALLTYPE       DeleteDataListEx ( PDATALIST *ppdl DBG_PASS );
-TYPELIB_PROC  POINTER TYPELIB_CALLTYPE    SetDataItemEx ( PDATALIST *ppdl, INDEX idx, POINTER data DBG_PASS );
-/* Adds an item to a DataList.
-   Example
-   <code lang="c++">
-   PDATALIST datalist = CreateDataList();
-   struct my_struct {
-       uint32_t my_data;
-   }
-   struct my_struct my_item;
-   my_item.my_data = 0;
-   AddDataItem( &amp;datalist, &amp;my_item );
-   </code>                                     */
-#define AddDataItem(list,data) (((list)&&(*(list)))?SetDataItemEx((list),(*list)->Cnt,data DBG_SRC ):NULL)
-/* Sets the item at a specific nodes to the new data.
-   Parameters
-   ppdl :      address of a PDATALIST.
-   idx :       index of element in list to set
-   data :      POINTER to data to set element to
-   DBG_PASS :  optional debug file/line information
-   Example
-   <code lang="c++">
-      PDATALIST pdl;
-      int oldval = 3;
-      int newval = 5;
-      pdl = CreateDataList( sizeof( int ) ); // store int's as data
-      AddDataItem( &amp;pdl, &amp;oldval );
-      SetDataItem( &amp;pdl, 0, &amp;newval );
-   </code>                                                          */
-TYPELIB_PROC  POINTER TYPELIB_CALLTYPE    SetDataItemEx ( PDATALIST *ppdl, INDEX idx, POINTER data DBG_PASS );
-/* \Returns a pointer to the data at a specified index.
-   Parameters
-   \    ppdl :  address of a PDATALIST
-   idx :   index of element to get                      */
-TYPELIB_PROC  POINTER TYPELIB_CALLTYPE    GetDataItem ( PDATALIST *ppdl, INDEX idx );
-/* Removes a data element from the list (moves all other
-   elements down over it since there is no used indicator.
-   Parameters
-   ppdl :  address of a PDATALIST.
-   idx :   index of element to delete                      */
-TYPELIB_PROC  void TYPELIB_CALLTYPE       DeleteDataItem ( PDATALIST *ppdl, INDEX idx );
-/* Empties a PDATALIST of all content.
-   Parameters
-   ppdl :  address of a PDATALIST
-   Example
-   <code lang="c++">
-   PDATALIST pdl;
-   pdl = CreateDataList( sizeof( int ) ); // store int's as data
-   EmptyDataList( &amp;pdl );
-   </code>                                                       */
-TYPELIB_PROC  void TYPELIB_CALLTYPE       EmptyDataList ( PDATALIST *ppdl );
-/* For loop to iterate through all items in a PDATALIST.
-   <code lang="c++">
-   PDATALIST pdl;
-   pdl = CreateDataList( sizeof( int ) );
-   {
-      INDEX index;
-      int *value;
-      DATA_FORALL( pdl, index, int, value )
-      {
-      }
-   }
-   </code>                                               */
-#define DATA_FORALL( l, i, t, v )  if(((v)=(t)NULL),(l)&&((l)->Cnt != INVALID_INDEX))	   for( ((i)=0);	                         (((i) < (l)->Cnt)                                             ?(((v)=(t)((l)->data + (uintptr_t)(((l)->Size) * (i)))),1)	         :(((v)=(t)NULL),0))&&(v); (i)++ )
-/* <code>
-   PDATALIST pdl;
-   pdl = CreateDataList( sizeof( int ) );
-   {
-      INDEX index;
-      int *value;
-      DATA_FORALL( pdl, index, int, value )
-      {
-          // abort loop early
-      }
-      DATA_NEXTALL( pdl, index, int, value )
-      {
-      }
-   }
-   </code>                                   */
-#define DATA_NEXTALL( l, i, t, v )  if(((v)=(t)NULL),(l))	   for( ((i)++);	                         ((i) < (l)->Cnt)                                             ?((v)=(t)((l)->data + (((l)->Size) * (i))))	         :(((v)=(t)NULL),0); (i)++ )
-/* <combine sack::containers::data_list::CreateDataListEx@uintptr_t nSize>
-   Creates a DataList specifying just the size. Uses the current
-   source and line for debugging parameter.                               */
-#define CreateDataList(sz) ( CreateDataListEx( (sz) DBG_SRC ) )
-/* Destroy a DataList.
-   Example
-   <code>
-   PDATALIST datalist = CreateDataList( 4 );
-   DeleteDataList( &amp;datalist );
-   </code>
-   Parameters
-   ppDataList :  pointer to the PDATALIST.   */
-#define DeleteDataList(p)  ( DeleteDataListEx( (p) DBG_SRC ) )
-/* <combine sack::containers::data_list::SetDataItemEx@PDATALIST *@INDEX@POINTER data>
-   \ \                                                                                 */
-#define SetDataItem(p,i,v) ( SetDataItemEx( (p),(i),(v) DBG_SRC ) )
-   _DATALIST_NAMESPACE_END
-//--------------------------------------------------------
-#ifdef __cplusplus
-		namespace link_stack {
-#endif
-/* Creates a new stack for links (POINTERS).
-   Parameters
-   DBG_PASS :  Debug file and line information to use for the
-               allocation of the stack.
-   Returns
-   Pointer to a new link stack.                               */
-TYPELIB_PROC  PLINKSTACK TYPELIB_CALLTYPE   CreateLinkStackEx( DBG_VOIDPASS );
-/* Creates a new stack for links (POINTERS).  Link stack has a limited number of entries.
-    When the stack fills, the oldest item on the stack is removed automatically.
-	 Parameters
-	 max_entries : maximum depth of the stack.
-   DBG_PASS :  Debug file and line information to use for the
-               allocation of the stack.
-   Returns
-   Pointer to a new link stack.                               */
-         // creates a link stack with maximum entries - any extra entries are pushed off the bottom into NULL
-TYPELIB_PROC  PLINKSTACK TYPELIB_CALLTYPE      CreateLinkStackLimitedEx        ( int max_entries  DBG_PASS );
-/* <combine sack::containers::link_stack::CreateLinkStackLimitedEx@int max_entries>
-   Macro to pass default debug file and line information.                           */
-#define CreateLinkStackLimited(n) CreateLinkStackLimitedEx(n DBG_SRC)
-/* Destroy a link stack. Sets the pointer to the stack to NULL
-   on deletion.
-   Parameters
-   pls :       address of a link stack pointer
-   DBG_PASS :  debug file and line information                 */
-TYPELIB_PROC  void TYPELIB_CALLTYPE         DeleteLinkStackEx( PLINKSTACK *pls DBG_PASS);
-/* Pushes a new link on the stack.
-   Parameters
-   pls :       address of a link stack pointer
-   p :         new pointer to push on the stack
-   DBG_PASS :  debug source file and line information.
-   Returns
-   New link stack pointer if the stack was reallocated to have
-   more space. Since the address of the pointer is passed, the
-   pointer is already updated, and the return value is
-   unimportant.                                                */
-TYPELIB_PROC  PLINKSTACK TYPELIB_CALLTYPE   PushLinkEx       ( PLINKSTACK *pls, POINTER p DBG_PASS);
-/* Reads the top value of the stack and returns it, removes top
-   link on the stack.
-   Parameters
-   pls :  address of a link stack pointer
-   Return Value List
-   NULL :      Stack was empty
-   not NULL :  Link that was on the top of the stack.           */
-TYPELIB_PROC  POINTER TYPELIB_CALLTYPE      PopLink          ( PLINKSTACK *pls );
-/* Look at the top link on the stack.
-   Parameters
-   pls :  address of a link stack pointer
-   Return Value List
-   NULL :      Nothing on stack.
-   not NULL :  link on the top of the stack. */
-TYPELIB_PROC  POINTER TYPELIB_CALLTYPE      PeekLink         ( PLINKSTACK *pls );
-/* Look at links in the stack.
-   Parameters
-	pls :  address of a link stack pointer
-	n : index of the element from the top to look at
-   Return Value List
-   NULL :      Nothing on stack at the position specified.
-   not NULL :  link on the top of the stack. */
-TYPELIB_PROC  POINTER TYPELIB_CALLTYPE      PeekLinkEx         ( PLINKSTACK *pls, INDEX n );
-// thought about adding these, but decided on creating a limited stack instead.
-//TYPELIB_PROC  POINTER TYPELIB_CALLTYPE      StackLength      ( PLINKSTACK *pls );
-//TYPELIB_PROC  POINTER TYPELIB_CALLTYPE      PopLinkEx        ( PLINKSTACK *pls, int position );
-/* <combine sack::containers::link_stack::CreateLinkStackEx@DBG_VOIDPASS>
-   Macro to pass default file and line information.                       */
-#define CreateLinkStack()  CreateLinkStackEx( DBG_VOIDSRC )
-/* <combine sack::containers::link_stack::DeleteLinkStackEx@PLINKSTACK *pls>
-   Macro to pass default file and line information.                          */
-#define DeleteLinkStack(p) DeleteLinkStackEx((p) DBG_SRC)
-/* <combine sack::containers::link_stack::PushLinkEx@PLINKSTACK *@POINTER p>
-   Macro to pass default debug file and line information.                    */
-#define PushLink(p, v)     PushLinkEx((p),(v) DBG_SRC)
-#ifdef __cplusplus
- //		namespace link_stack {
-		}
-#endif
-//--------------------------------------------------------
-#ifdef __cplusplus
-		namespace data_stack {
-#endif
-/* Creates a data stack for data element of the specified size.
-   Parameters
-   size :       size of elements in the stack
-   DBG_PASS :  debug file and line information.                 */
-TYPELIB_PROC  PDATASTACK TYPELIB_CALLTYPE   CreateDataStackEx( size_t size DBG_PASS );
-/* Creates a data stack for data element of the specified size.
-   Parameters
-   size :       size of items in the stack
-   count :      max items in stack (oldest gets deleted)
-   DBG_PASS :  debug file and line information.                 */
-TYPELIB_PROC  PDATASTACK TYPELIB_CALLTYPE   CreateDataStackLimitedEx( size_t size, INDEX count DBG_PASS );
-/* Destroys a data stack.
-   Parameters
-   pds :       address of a data stack pointer. The pointer will
-               be set to NULL when the queue is destroyed.
-   DBG_PASS :  Debug file and line information.                  */
-TYPELIB_PROC  void TYPELIB_CALLTYPE         DeleteDataStackEx( PDATASTACK *pds DBG_PASS);
-/* Push a data element onto the stack. The size of the element
-   is known at the stack creation time.
-   Parameters
-   pds :       address of a data stack pointer
-   p :         pointer to data to push on stack
-   DBG_PASS :  debug file and line information                 */
-TYPELIB_PROC  PDATASTACK TYPELIB_CALLTYPE   PushDataEx     ( PDATASTACK *pds, POINTER pdata DBG_PASS );
-/* \Returns an allocated buffer containing the data on the
-   stack. Removes item from the stack.
-   Parameters
-   pds :  address of a data stack to get data from         */
-TYPELIB_PROC  POINTER TYPELIB_CALLTYPE      PopData        ( PDATASTACK *pds );
-/* Clear all data stored in the stack.
-   Parameters
-   pds :  address of a data stack pointer. */
-TYPELIB_PROC  void TYPELIB_CALLTYPE         EmptyDataStack ( PDATASTACK *pds );
-/* Look at top item in the stack without removing it.
-   Parameters
-   pds :  address of a data stack to look at          */
-TYPELIB_PROC  POINTER TYPELIB_CALLTYPE      PeekData       ( PDATASTACK *pds );
-// Incrementing Item moves progressivly down the stack
-// final(invalid) stack, and/or empty stack will return NULL;
-TYPELIB_PROC  POINTER TYPELIB_CALLTYPE      PeekDataEx     ( PDATASTACK *pds, INDEX Item );
- /* keeps data on stack (can be used)
-                                                                                      Parameters
-                                                                                      pds :   address of a data stack pointer
-                                                                                      Item :  Item to peek at; 0 is the top, 1 is just below it...
-                                                                                              (maybe \-1 is last and further up)
-                                                                                      Returns
-                                                                                      \returns the address of the data item in the data stack.     */
-/* <combine sack::containers::data_stack::CreateDataStackEx@INDEX size>
-   Macro to pass default file and line information.                     */
-#define CreateDataStack(size) CreateDataStackEx( size DBG_SRC )
-/* <combine sack::containers::data_stack::CreateDataStackEx@INDEX size>
-   Macro to pass default file and line information.                     */
-#define CreateDataStackLimited(size,items) CreateDataStackLimitedEx( size,items DBG_SRC )
-/* <combine sack::containers::data_stack::DeleteDataStackEx@PDATASTACK *pds>
-   Macro to pass default file and line information.                          */
-#define DeleteDataStack(p) DeleteDataStackEx((p) DBG_SRC)
-/* <combine sack::containers::data_stack::PushDataEx@PDATASTACK *@POINTER pdata>
-   Macro to pass default file and line information.                              */
-#define PushData(pds,p) PushDataEx(pds,p DBG_SRC )
-#ifdef __cplusplus
- //		namespace data_stack {
-		}
-#endif
-/* Queue container - can enque (at tail) deque (from head) and preque (at head). Can also browse the queue with peekqueue. */
-#ifdef __cplusplus
-		namespace queue {
-#endif
-/* Creates a <link sack::containers::PLINKQUEUE, LinkQueue>. In
-   debug mode, gets passed the current source and file so it can
-   blame the user for the allocation.                            */
-TYPELIB_PROC  PLINKQUEUE TYPELIB_CALLTYPE   CreateLinkQueueEx( DBG_VOIDPASS );
-/* Delete a link queue. Pass the address of the pointer to the
-   queue to delete, this function sets the pointer to NULL if
-   the queue is actually deleted.                              */
-TYPELIB_PROC  void TYPELIB_CALLTYPE         DeleteLinkQueueEx( PLINKQUEUE *pplq DBG_PASS );
-/* Enque a link to the queue.  */
-TYPELIB_PROC  PLINKQUEUE TYPELIB_CALLTYPE   EnqueLinkEx      ( PLINKQUEUE *pplq, POINTER link DBG_PASS );
-TYPELIB_PROC  void TYPELIB_CALLTYPE   EnqueLinkNLEx( PLINKQUEUE *pplq, POINTER link DBG_PASS );
-/* EnqueLink adds the new item at the end of the list. PrequeueLink
-   puts the new item at the head of the queue (so it's the next
-   one to be retrieved).                                            */
-TYPELIB_PROC  PLINKQUEUE TYPELIB_CALLTYPE   PrequeLinkEx      ( PLINKQUEUE *pplq, POINTER link DBG_PASS );
-/* If the queue is not empty, returns the address of the next
-   element in the queue and removes the element from the queue.
-                                                                */
-TYPELIB_PROC  POINTER TYPELIB_CALLTYPE      DequeLink        ( PLINKQUEUE *pplq );
-TYPELIB_PROC POINTER  TYPELIB_CALLTYPE      DequeLinkNL      ( PLINKQUEUE *pplq );
-/* Return TRUE/FALSE if the queue is empty or not. */
-TYPELIB_PROC  LOGICAL TYPELIB_CALLTYPE      IsQueueEmpty     ( PLINKQUEUE *pplq );
-/* Gets the number of elements current in the queue. */
-TYPELIB_PROC  INDEX TYPELIB_CALLTYPE        GetQueueLength   ( PLINKQUEUE plq );
-// get a PLINKQUEUE element at index
-//  If idx < 0 then count from the end of the queue, otherwise count from the start of the queue
-// start of the queue is the next element to be dequeue, end of the queue is the last element added to the queue.
-TYPELIB_PROC  POINTER TYPELIB_CALLTYPE      PeekQueueEx    ( PLINKQUEUE plq, int idx );
-/* Can be used to look at the next element in the queue without
-   removing it from the queue. PeekQueueEx allows you to specify
-   an index of an item in the queue to get.                      */
-TYPELIB_PROC  POINTER TYPELIB_CALLTYPE      PeekQueue    ( PLINKQUEUE plq );
-/* <combinewith sack::containers::queue::CreateLinkQueueEx@DBG_VOIDPASS>
-   \ \                                                                   */
-#define     CreateLinkQueue()     CreateLinkQueueEx( DBG_VOIDSRC )
-/* <combine sack::containers::queue::PrequeLinkEx@PLINKQUEUE *@POINTER link>
-   \ \                                                                       */
-#define     PrequeLink(pplq,link) PrequeLinkEx( pplq, link DBG_SRC )
-/* <combine sack::containers::queue::DeleteLinkQueueEx@PLINKQUEUE *pplq>
-   \ \                                                                   */
-#define     DeleteLinkQueue(pplq) DeleteLinkQueueEx( pplq DBG_SRC )
-/* <combine sack::containers::queue::EnqueLinkEx@PLINKQUEUE *@POINTER link>
-   \ \                                                                      */
-#define     EnqueLink(pplq, link) EnqueLinkEx( pplq, link DBG_SRC )
-#define     EnqueLinkNL(pplq, link) EnqueLinkNLEx( pplq, link DBG_SRC )
-#ifdef __cplusplus
-//		namespace queue {
-		}
-#endif
-/* Functions related to PDATAQUEUE container. DataQueue stores
-   literal data elements in the list instead of just a pointer. (could
-   be used for optimized vertex arrays for instance).
-   int data = 3;
-   int result;
-   PDATAQUEUE pdq = CreateDataQueue( sizeof( int ) );
-   EnqueData( &amp;pdq, &amp;data );
-   DequeData( &amp;pdq, &amp;result );
-   DestroyDataQueue( &amp;pdq );                                       */
-#ifdef __cplusplus
-		namespace data_queue {
-#endif
-/* Creates a PDATAQUEUE. Can pass DBG_FILELINE information to
-   blame other code for the allocation.                       */
-TYPELIB_PROC  PDATAQUEUE TYPELIB_CALLTYPE   CreateDataQueueEx( INDEX size DBG_PASS );
-/* Creates a PDATAQUEUE that has an overridden expand-by amount
-   and initial amount of entries in the queue. (expecting
-   something like 1000 to start and expand by 500, instead of
-   the default 0, and expand by 1.                              */
-TYPELIB_PROC  PDATAQUEUE TYPELIB_CALLTYPE   CreateLargeDataQueueEx( INDEX size, INDEX entries, INDEX expand DBG_PASS );
-/* Destroys a data queue. */
-TYPELIB_PROC  void TYPELIB_CALLTYPE         DeleteDataQueueEx( PDATAQUEUE *pplq DBG_PASS );
-/* Add a data element into the queue. */
-TYPELIB_PROC  PDATAQUEUE TYPELIB_CALLTYPE   EnqueDataEx      ( PDATAQUEUE *pplq, POINTER Data DBG_PASS );
-/* Enque data at the head of the queue instead of the tail. (Normally
-   add at tail, take from head).                                      */
-TYPELIB_PROC  PDATAQUEUE TYPELIB_CALLTYPE   PrequeDataEx      ( PDATAQUEUE *pplq, POINTER Data DBG_PASS );
-/* Removes data from a queue, resulting with the data in the
-   specified buffer, and result TRUE if there was an element
-   else FALSE, and the buffer is not modified.               */
-TYPELIB_PROC  LOGICAL TYPELIB_CALLTYPE      DequeData        ( PDATAQUEUE *pplq, POINTER Data );
-/* Removes the last element in the queue. (takes from the tail). */
-TYPELIB_PROC  LOGICAL TYPELIB_CALLTYPE      UnqueData        ( PDATAQUEUE *pplq, POINTER Data );
-/* Checks if the queue is empty, result TRUE if nothing in it,
-   else FALSE.                                                 */
-TYPELIB_PROC  LOGICAL TYPELIB_CALLTYPE      IsDataQueueEmpty ( PDATAQUEUE *pplq );
-/* Empty a dataqueue of all data. (Sets head=tail). */
-TYPELIB_PROC  void TYPELIB_CALLTYPE         EmptyDataQueue ( PDATAQUEUE *pplq );
-/*
- * get a PDATAQUEUE element at index
- * result buffer is a pointer to the type of structure expected to be
- * stored within this.  The buffer result is a copy of the data stored in the queue.
- * This enforces that data stored in the list is immutable.
- * Also on the basic DequeData function, after resulting, if the pointer to the
- * data within the queue were returned, it could become invalid immediatly after
- * returning by having another enque happen which overwrites that position in the buffer.
- * One could, in theory, set a flag in the queue that a deque was done, and not update the
- * bottom until that flag is encountered while within DequeData again...
- * the pointer to the data in the queue may also not be returned because the queue may be
- * reallocated and moved.
- */
-TYPELIB_PROC  LOGICAL TYPELIB_CALLTYPE  PeekDataQueueEx    ( PDATAQUEUE *pplq, POINTER ResultBuffer, INDEX idx );
-#define PeekDataQueueEx( q, type, result, idx ) PeekDataQueueEx( q, (POINTER)result, idx )
-/*
- * Result buffer is filled with the last element, and the result is true, otherwise the return
- * value is FALSE, and the data was not filled in.
- */
-TYPELIB_PROC  LOGICAL TYPELIB_CALLTYPE  PeekDataQueue    ( PDATAQUEUE *pplq, POINTER ResultBuffer );
-#define PeekDataQueue( q, type, result ) PeekDataQueueEx( q, type, result, 0 )
-/*
- * gets the address a PDATAQUEUE element at index
- * result buffer is a pointer to the type of structure expected to be
- * stored within this.  Index from 0 to N indexes from first ( to be dequeued )
- * to last item in queue.
- */
-TYPELIB_PROC POINTER TYPELIB_CALLTYPE  PeekDataInQueueEx    ( PDATAQUEUE *pplq, INDEX idx );
-/*
- * Results with the first item in the queue, else NULL.
- */
-TYPELIB_PROC POINTER TYPELIB_CALLTYPE  PeekDataInQueue    ( PDATAQUEUE *pplq );
-/* <combine sack::containers::data_queue::CreateDataQueueEx@INDEX size>
-   \ \                                                                  */
-#define     CreateDataQueue(size)     CreateDataQueueEx( size DBG_SRC )
-/* <combine sack::containers::data_queue::CreateLargeDataQueueEx@INDEX@INDEX@INDEX expand>
-   \ \                                                                                     */
-#define     CreateLargeDataQueue(size,entries)     CreateLargeDataQueueEx( size,entries, 0 DBG_SRC )
-/* <combine sack::containers::data_queue::DeleteDataQueueEx@PDATAQUEUE *pplq>
-   \ \                                                                        */
-#define     DeleteDataQueue(pplq) DeleteDataQueueEx( pplq DBG_SRC )
-/* <combine sack::containers::data_queue::EnqueDataEx@PDATAQUEUE *@POINTER Data>
-   \ \                                                                           */
-#define     EnqueData(pplq, Data) EnqueDataEx( pplq, Data DBG_SRC )
-/* <combine sack::containers::data_queue::PrequeDataEx@PDATAQUEUE *@POINTER Data>
-   \ \                                                                            */
-#define     PrequeData(pplq, Data) PrequeDataEx( pplq, Data DBG_SRC )
-#ifdef __cplusplus
-//		namespace data_queue {
-		}
-#endif
-//---------------------------------------------------------------------------
-#ifdef __cplusplus
-namespace message {
-#endif
-/* handle to a message queue. */
-typedef struct MsgDataHandle *PMSGHANDLE;
-//typedef struct MsgDataQueue *PMSGQUEUE;
-// messages sent - the first dword of them must be
-// a message ID.
-typedef void (CPROC *MsgQueueReadCallback)( uintptr_t psv, CPOINTER p, uintptr_t sz );
-/* Create a named shared memory message queue.
-   Parameters
-   name :     name of the queue to create
-   size :     size of the queue.
-   Read :     read callback, called when a message is received on
-              the queue.
-   psvRead :  user data associated with the queue. Passed to the
-              read callback.                                      */
-TYPELIB_PROC  PMSGHANDLE TYPELIB_CALLTYPE  SackCreateMsgQueue ( CTEXTSTR name, size_t size
-                                                      , MsgQueueReadCallback Read
-                                                      , uintptr_t psvRead );
-/* Open a message queue. Opens if it exists, does not create.
-   Parameters
-   name :     name of the queue.
-   Read :     read callback called when a message is received.
-   psvRead :  user data associated with this queue, and passed to
-              the read callback.                                  */
-TYPELIB_PROC  PMSGHANDLE TYPELIB_CALLTYPE  SackOpenMsgQueue ( CTEXTSTR name
-													 , MsgQueueReadCallback Read
-													 , uintptr_t psvRead );
-/* Destroys a message queue.
-   Parameters
-   ppmh :  address of the message queue handle to close (sets
-           pointer to NULL when deleted)                      */
-TYPELIB_PROC  void TYPELIB_CALLTYPE  DeleteMsgQueue ( PMSGHANDLE **ppmh );
- // if enque, fail send, return immediate on fail
-#define MSGQUE_NOWAIT 0x0001
-                             // if deque, fail no msg ready to get...
- // read any msg BUT MsgID
-#define MSGQUE_EXCEPT 0x0002
- // enque this message... it is a task ID which is waiting.
-#define MSGQUE_WAIT_ID 0x0004
-/* Error result if there is no message to read. (GetLastError()
-   after peekmsg or readmsg returns -1)                         */
-#define MSGQUE_ERROR_NOMSG 1
-/* Error result if the message to read is bigger than the buffer
-   passed to read the message.                                   */
-#define MSGQUE_ERROR_E2BIG 2
-/* Error result. Unexpected error (queue head/tail out of
-   bounds)                                                */
-#define MSGQUE_ERROR_EABORT 5
-// result is the size of the message, or 0 if no message.
-// -1 if some other error?
-TYPELIB_PROC  int TYPELIB_CALLTYPE  DequeMsgEx ( PMSGHANDLE pmh, long *MsgID, POINTER buffer, size_t msgsize, uint32_t options DBG_PASS );
-/* Receives a message from the message queue.
-   Parameters
-   Message Queue :  PMSGHANDLE to read from
-   Message ID * :   a Pointer to the message ID to read. Updated
-                    with the message ID from the queue.
-   buffer :         buffer to read message into
-   buffer length :  length of the buffer to read
-   options :        extra options for the read
-   Return Value List
-   \-1 :  Error
-   0 :    No Message to read
-   \>0 :  size of message read.
-   Returns
-   \ \                                                           */
-#define DequeMsg(q,b,s,i,o) DequeMsgEx(q,b,s,i,o DBG_SRC )
-/* <combine sack::containers::message::PeekMsg>
-   \ \                                          */
-TYPELIB_PROC  int TYPELIB_CALLTYPE  PeekMsgEx ( PMSGHANDLE pmh, long MsgID, POINTER buffer, size_t msgsize, uint32_t options DBG_PASS );
-/* Just peek at the next message.
-   Parameters
-   queue :        The PMSGHANDLE queue to read.
-   MsgID :        what message to read. 0 is read any message.
-   buffer :       where to read the message data into.
-   buffer_size :  the length of the message buffer.
-   options :      Options controlling the read
-   Returns
-   \-1 on error
-   0 if no message
-   length of the message read                                  */
-#define PeekMsg(q,b,s,i,o) PeekMsgEx(q,b,s,i,o DBG_SRC )
-/* <combine sack::containers::message::EnqueMsg>
-   \ \                                          */
-TYPELIB_PROC  int TYPELIB_CALLTYPE  EnqueMsgEx ( PMSGHANDLE pmh, POINTER buffer, size_t msgsize, uint32_t options DBG_PASS );
-/* Add a message to the queue.
-   Parameters
-   Message Queue :  PMSGQUEUE to write to.
-   Buffer :         pointer to the message to send. THe MSgID is
-                    the first part of the message buffer.
-   Buffer Length :  how long the message to send is
-   Options :        Extra options for send
-   Return Value List
-   \-1 :  Error
-   \>0 :  bytes of message sent                                  */
-#define EnqueMsg(q,b,s,o) EnqueMsgEx(q,b,s,o DBG_SRC )
-/* Check if the message queue is empty.
-   Parameters
-   pmh :  queue to check if it's empty. */
-TYPELIB_PROC  int TYPELIB_CALLTYPE  IsMsgQueueEmpty ( PMSGHANDLE pmh );
-#ifdef __cplusplus
- //namespace message {
-}
-#endif
-/* Routines to deal with SLAB allocated blocks of structures.
-   Each slab has multiple elements of a type in it, and the
-   blocks are tracked as a linked list. Each block also has a
-   bitmask of allocated elements in the set.
-   \---------------------------------------------------------------------------
-   Set type
-   Usage:
-   typedef struct name_tag { } \<name\>;
-   \#define MAX\<name\>SPERSET
-   DeclareSet( \<name\> );
-   Should alias GetFromset, DeleteFromSet, CountUsedInSet,
-   GetLinearSetArray
-   etc so that the type name is reflected there
-   another good place where #define defining defines is good.
-   \---------------------------------------------------------------------------
-                                                                                */
-_SETS_NAMESPACE
-//---------------------------------------------------------------------------
-// Set type
-//   Usage:
-//      typedef struct name_tag { } <name>;
-//      #define MAX<name>SPERSET
-//      DeclareSet( <name> );
-//    Should alias GetFromset, DeleteFromSet, CountUsedInSet, GetLinearSetArray
-//       etc so that the type name is reflected there
-//       another good place where #define defining defines is good.
-//---------------------------------------------------------------------------
-/* Hard coded 32 bit division for getting word index. (x\>\>5) */
-#define UNIT_USED_IDX(n)   ((n) >> 5)
-/* Hard coded 32 bit division for getting bit index. (x &amp;
-   0x1f)                                                      */
-#define UNIT_USED_MASK(n)  (1 << ((n) &0x1f))
-/* A macro for use by internal code that marks a member of a set
-   as used.
-   Parameters
-   set :    pointer to a genericset
-   index :  item to mark used.                                   */
-#define SetUsed(set,n)   ((((set)->bUsed[UNIT_USED_IDX(n)]) |= UNIT_USED_MASK(n)), (++(set)->nUsed) )
-/* A macro for use by internal code that marks a member of a set
-   as available.
-   Parameters
-   set :    pointer to a genericset
-   index :  item to mark available.                              */
-#define ClearUsed(set,n) ((((set)->bUsed[UNIT_USED_IDX(n)]) &= ~UNIT_USED_MASK(n)), (--(set)->nUsed) )
-/* A macro for use by internal code that tests a whole set of
-   bits for used. (32 bits, can check to see if any in 32 is
-   free)
-   Parameters
-   set :    pointer to a genericset
-   index :  index of an one in the set of 32 being tested.
-   Returns
-   0 if not all are used.
-   1 if all in this block of bits are used.                   */
-#define AllUsed(set,n)   (((set)->bUsed[UNIT_USED_IDX(n)]) == 0xFFFFFFFF )
-/* A macro for use by internal code that tests a member of a set
-   as used.
-   Parameters
-   set :    pointer to a genericset
-   index :  item to test used.
-   Returns
-   not zero if is used, otherwise is free.                       */
-#define IsUsed(set,n)    (((set)->bUsed[UNIT_USED_IDX(n)]) & UNIT_USED_MASK(n) )
-#ifdef __cplusplus
-#define CPP_(n)
-/* A macro which is used to emit code in C++ mode... */
-#else
-#define CPP_(n)
-#endif
-// requires a symbol of MAX<insert name>SPERSET to declare max size...
- //ndef __cplusplus
-#if 1
-#define SizeOfSet(size,count)  (sizeof(POINTER)*2+sizeof(int)+sizeof( uint32_t[((count)+31)/32] ) + ((size)*(count)))
-#define DeclareSet( name )  typedef struct name##set_tag {	   struct name##set_tag *next, *prior;	                      uint32_t nUsed;	                                               uint32_t nBias;	                                               uint32_t bUsed[(MAX##name##SPERSET + 31 ) / 32];	              name p[MAX##name##SPERSET];	                           CPP_(int forall(uintptr_t(CPROC*f)(void*,uintptr_t),uintptr_t psv) {if( this ) return _ForAllInSet( (struct genericset_tag*)this, sizeof(name), MAX##name##SPERSET, f, psv ); else return 0; })	 CPP_(name##set_tag() { next = NULL;prior = NULL;nUsed = 0; nBias = 0; MemSet( bUsed, 0, sizeof( bUsed ) ); MemSet( p, 0, sizeof( p ) );} )	} name##SET, *P##name##SET
-#define DeclareClassSet( name ) typedef struct name##set_tag {	   struct name##set_tag *next, *prior;	                      uint32_t nUsed;	                                               uint32_t nBias;	                                               uint32_t bUsed[(MAX##name##SPERSET + 31 ) / 32];	              class name p[MAX##name##SPERSET];	                        CPP_(int forall(uintptr_t(CPROC*)(void*f,uintptr_t),uintptr_t psv) {if( this ) return _ForAllInSet( (struct genericset_tag*)this, sizeof(class name), MAX##name##SPERSET, f, psv ); else return 0; })	 } name##SET, *P##name##SET
-#endif
-/* This represents the basic generic set structure. Addtional
-   data is allocated at the end of this strcture to fit the bit
-   array that maps usage of the set, and for the set size of
-   elements.
-   Remarks
-   \    Summary
-   Generic sets are good for tracking lots of tiny structures.
-   They track slabs of X structures at a time. They allocate a
-   slab of X structures with an array of X bits indicating
-   whether a node is used or not. The structure overall has how
-   many are used, so once full, a block can be quickly checked
-   whether there is anything free. Then when checking a block
-   that might have room, the availablility is checked 32 bits at
-   a time, until a free spot is found.
-   Sets of 1024 members of x,y coordinates for example are good
-   for this sort of storage. the points are often static, once
-   loaded they all exist until none of them do. This storage has
-   gross deletion methods too, quickly evaporate all allocated
-   chunks. Storing tiny chunks in a slab is more efficient
-   because every allocation method has some sort of tracking
-   associated with it - an overhead of having it. Plus, when
-   operating on sets of data, a single solid slab of exatly the
-   structures you are working with is more efficient to cache.
-   Example
-   <code lang="c++">
-   struct treenode_tag {
-       uint32_t treenode_data;  // abitrary structure data
-   };
-   typedef struct treenode_tag TREENODE;
-   \#define MAXTREENODESPERSET 256
-   DeclareSet( TREENODE );
-   </code>
-   The important part of the prior code is the last two lines.
-   \#define MAX\<your type name\>SPERSET \<how many\>
-   This defines how many of your structure are kept per set
-   block.
-   The DeclareSet( type ) declares a typedefed structure called
-   'struct type##set_tag', 'name##SET', and '*P##name##SET'; in
-   the above case, it would be 'struct TREENODEset_tag',
-   'TREENODESET', and 'PTREENODESET'.
-   Then to actually use the set...
-   <code lang="c#">
-   // declare a set pointer with one of the magic names.
-   PTREENODESET nodeset = NULL;
-   // get a node from the set.
-   TREENODE *node = GetFromSet( TREENODE, nodeset );
-   </code>
-   Notice there is no CreateSet, getting a set member will
-   create the set as required. Many operations may expend the
-   set, except for GetUsedSetMember which will only result with
-   \members that are definatly in the set. Accesses to the set
-   are all prefixed by the type name the set was created with,
-   'TREENODE' in this example.
-   <code lang="c++">
-   DeleteFromSet( TREENODE, nodeset, node );
-   node = GetFromSet( TREENODE, nodeset );
-   {
-      int index = GetMemberIndex( TREENODE, nodeset, node );
-   }
-   </code>
-   The accessor macros take care of expanding several parameters
-   that require sizeof structure expansion.                      */
-typedef struct genericset_tag {
-	// wow might be nice to have some flags...
-	// first flag - bSetSet - meaning that this is a set of sets of
-	// the type specified...
-	struct genericset_tag *next;
-	/* This is the pointer that's pointing at the pointer pointing
-	   to me. (did you get that?) See <link DeclareLink>.          */
-	struct genericset_tag **me;
-	/* number of spots in this set block that are used. */
-	uint32_t nUsed;
-    // this is the size of the bit pool before the pointer pool
-	uint32_t nBias;
- // the bit pool starts here (booleanUsed) after a number of
-	uint32_t bUsed[1];
-	                   // bits begins the aligned pointer pool.
-} GENERICSET, *PGENERICSET;
-/* \    Parameters
-   pSet :      pointer to a generic set
-   nMember :   index of the member
-   setsize :   number of elements in each block
-   unitsize :  set block
-   maxcnt :    max elements per set block       */
-TYPELIB_PROC  POINTER  TYPELIB_CALLTYPE GetFromSetEx( GENERICSET **pSet, int setsize, int unitsize, int maxcnt DBG_PASS );
-/* <combine sack::containers::sets::GetFromSetEx@GENERICSET **@int@int@int maxcnt>
-   \ \                                                                             */
-#define GetFromSeta(ps, ss, us, max) GetFromSetPoolEx( NULL, 0, 0, 0, (ps), (ss), (us), (max) DBG_SRC )
-/* <combine sack::containers::sets::GetFromSetEx@GENERICSET **@int@int@int maxcnt>
-   \    Parameters
-   name :  name of type the set contains.
-   pSet :  pointer to a set to get an element from.                                */
-#define GetFromSet( name, pset ) (name*)GetFromSeta( (GENERICSET**)(pset), sizeof( name##SET ), sizeof( name ), MAX##name##SPERSET )
-/* \    Parameters
-   pSet :      pointer to a generic set
-   nMember :   index of the member
-   setsize :   number of elements in each block
-   unitsize :  set block
-   maxcnt :    max elements per set block       */
-TYPELIB_PROC  PGENERICSET  TYPELIB_CALLTYPE GetFromSetPoolEx( GENERICSET **pSetSet
-													 , int setsetsize, int setunitsize, int setmaxcnt
-													 , GENERICSET **pSet
-													 , int setsize, int unitsize, int maxcnt DBG_PASS );
-/* <combine sack::containers::sets::GetFromSetPoolEx@GENERICSET **@int@int@int@GENERICSET **@int@int@int maxcnt>
-   \ \                                                                                                           */
-#define GetFromSetPoola(pl, sss, sus, smax, ps, ss, us, max) GetFromSetPoolEx( (pl), (sss), (sus), (smax), (ps), (ss), (us), (max) DBG_SRC )
-/* <combine sack::containers::sets::GetFromSetPoolEx@GENERICSET **@int@int@int@GENERICSET **@int@int@int maxcnt>
-   \ \                                                                                                           */
-#define GetFromSetPool( name, pool, pset ) (name*)GetFromSetPoola( (GENERICSET**)(pool)	    , sizeof( name##SETSET ), sizeof( name##SET ), MAX##name##SETSPERSET	, (GENERICSET**)(pset), sizeof( name##SET ), sizeof( name ), MAX##name##SPERSET )
-/* \    Parameters
-   pSet :      pointer to a generic set
-   nMember :   index of the member
-   setsize :   number of elements in each block
-   unitsize :  set block
-   maxcnt :    max elements per set block       */
-TYPELIB_PROC  POINTER  TYPELIB_CALLTYPE GetSetMemberEx( GENERICSET **pSet, INDEX nMember, int setsize, int unitsize, int maxcnt DBG_PASS );
-/* <combine sack::containers::sets::GetSetMemberEx@GENERICSET **@INDEX@int@int@int maxcnt>
-   \ \                                                                                     */
-#define GetSetMembera(ps, member, ss, us, max) (GetSetMemberEx( (ps), (member), (ss), (us), (max) DBG_SRC ))
-/* <combine sack::containers::sets::GetSetMemberEx@GENERICSET **@INDEX@int@int@int maxcnt>
-   \ \                                                                                     */
-#define GetSetMember( name, pset, member ) ((name*)GetSetMembera( (GENERICSET**)(pset), (member), sizeof( name##SET ), sizeof( name ), MAX##name##SPERSET ))
-/* \    Parameters
-   pSet :      pointer to a generic set
-   nMember :   index of the member
-   setsize :   number of elements in each block
-   unitsize :  set block
-   maxcnt :    max elements per set block       */
-TYPELIB_PROC  POINTER  TYPELIB_CALLTYPE GetUsedSetMemberEx( GENERICSET **pSet, INDEX nMember, int setsize, int unitsize, int maxcnt DBG_PASS );
-/* <combine sack::containers::sets::GetUsedSetMemberEx@GENERICSET **@INDEX@int@int@int maxcnt>
-   \ \                                                                                         */
-#define GetUsedSetMembera(ps, member, ss, us, max) (GetUsedSetMemberEx( (ps), (member), (ss), (us), (max) DBG_SRC ))
-/* <combine sack::containers::sets::GetUsedSetMemberEx@GENERICSET **@INDEX@int@int@int maxcnt>
-   \ \                                                                                         */
-#define GetUsedSetMember( name, pset, member ) ((name*)GetUsedSetMembera( (GENERICSET**)(pset), (member), sizeof( name##SET ), sizeof( name ), MAX##name##SPERSET ))
-TYPELIB_PROC  INDEX TYPELIB_CALLTYPE  GetMemberIndex(GENERICSET **set, POINTER unit, int unitsize, int max );
-/* Gets the index of a member passed as a pointer.
-   Parameters
-   set :       pointer to the set the member is in
-   unit :      pointer to the member in the set to get the index
-               of.
-   unitsize :  size of each member in the set
-   max :       count of members in each set block.
-   Returns
-   \Returns the index of the member passed in as a pointer.      */
-#define GetMemberIndex(name,set,member) GetMemberIndex( (GENERICSET**)set, member, sizeof( name ), MAX##name##SPERSET )
-/* <combine sack::containers::sets::GetMemberIndex>
-   \ \                                              */
-#define GetIndexFromSet( name, pset ) GetMemberIndex( name, pset, GetFromSet( name, pset ) )
-/* \    Parameters
-   pSet :      pointer to a generic set
-   nMember :   index of the member
-   setsize :   number of elements in each block
-   unitsize :  set block
-   maxcnt :    max elements per set block       */
-TYPELIB_PROC  void TYPELIB_CALLTYPE  DeleteFromSetExx( GENERICSET *set, POINTER unit, int unitsize, int max DBG_PASS );
-/* <combine sack::containers::sets::DeleteFromSetExx@GENERICSET *@POINTER@int@int max>
-   \ \                                                                                 */
-#define DeleteFromSetEx( name, set, member, xx ) DeleteFromSetExx( (GENERICSET*)set, member, sizeof( name ), MAX##name##SPERSET DBG_SRC )
-/* <combine sack::containers::sets::DeleteFromSetExx@GENERICSET *@POINTER@int@int max>
-   \ \                                                                                 */
-#define DeleteFromSet( name, set, member ) DeleteFromSetExx( (GENERICSET*)set, member, sizeof( name ), MAX##name##SPERSET DBG_SRC )
-/* Marks a member in a set as usable.
-   Parameters
-   set :       pointer to a genericset pointer
-   iMember :   index of member to delete
-   unitsize :  (filled by macro) size of element in set
-   max :       (filled by macro) size of a block of elements. */
-TYPELIB_PROC  void TYPELIB_CALLTYPE  DeleteSetMemberEx( GENERICSET *set, INDEX iMember, uintptr_t unitsize, INDEX max );
-/* <combine sack::containers::sets::DeleteSetMemberEx@GENERICSET *@INDEX@uintptr_t@INDEX>
-   \ \                                                                                   */
-#define DeleteSetMember( name, set, member ) DeleteSetMemberEx( (GENERICSET*)set, member, sizeof( name ), MAX##name##SPERSET )
-/* This function can check to see if a pointer is a valid
-   element from a set.
-   Parameters
-   set :       pointer to a set to check
-   unit :      pointer to an element from the set
-   unitsize :  size of element structures in the set.
-   max :       count of structures per set block
-   Returns
-   TRUE if unit is in the set, else FALSE.                */
-TYPELIB_PROC  int TYPELIB_CALLTYPE  MemberValidInSetEx( GENERICSET *set, POINTER unit, int unitsize, int max );
-/* <combine sack::containers::sets::MemberValidInSetEx@GENERICSET *@POINTER@int@int>
-   \ \                                                                               */
-#define MemberValidInSet( name, set, member ) MemberValidInSetEx( (GENERICSET*)set, member, sizeof( name ), MAX##name##SPERSET )
-TYPELIB_PROC  int TYPELIB_CALLTYPE  CountUsedInSetEx( GENERICSET *set, int max );
-/* Count number of elements that are allocated in the set.
-   Parameters
-   set :  The set to check
-   max :  max items per set (may be unused, since this is stored
-          internally now)
-   Returns
-   The number of items in the step.                              */
-#define CountUsedInSet( name, set ) CountUsedInSetEx( (GENERICSET*)set, MAX##name##SPERSET )
-TYPELIB_PROC  POINTER * TYPELIB_CALLTYPE GetLinearSetArrayEx( GENERICSET *pSet, int *pCount, int unitsize, int max );
-/* Converts a set into a copy of the objects in the set
-   organized in a flat array.
-   Parameters
-   pSet :      set to convert to an array
-   pCount :    address of an integer to receive the count of
-               elements put in the array.
-   unitsize :  size of each element in the set
-   max :       count of elements per set block
-   Returns
-   Pointer to an array that are a copy of the objects in the
-   set.                                                      */
-#define GetLinearSetArray( name, set, pCount ) GetLinearSetArrayEx( (GENERICSET*)set, pCount, sizeof( name ), MAX##name##SPERSET )
-/* Returned the index of an item in a linear array returned from
-   a set.
-   Parameters
-   pArray :      pointer to an array which has been returned from
-                 the set
-   nArraySize :  size fo the array
-   unit :        pointer to an element in the array
-   Returns
-   Index of the unit in the array, INVALID_INDEX if not in the
-   array.                                                         */
-TYPELIB_PROC  int TYPELIB_CALLTYPE  FindInArray( POINTER *pArray, int nArraySize, POINTER unit );
-/* Delete all allocated slabs.
-   Parameters
-   ppSet :  pointer to a generic set pointer to delete. */
-TYPELIB_PROC  void TYPELIB_CALLTYPE  DeleteSet( GENERICSET **ppSet );
-/* <combine sack::containers::sets::DeleteSet@GENERICSET **>
-   \ \                                                       */
-#define DeleteSetEx( name, ppset ) { name##SET **delete_me = ppset; DeleteSet( (GENERICSET**)delete_me ); }
-/* <combine sack::containers::sets::ForAllInSet>
-   ForAllinSet Callback - callback fucntion used with
-   ForAllInSet                                        */
-typedef uintptr_t (CPROC *FAISCallback)(void*,uintptr_t);
-/* \    Parameters
-   pSet :      poiner to a set
-   unitsize :  size of elements in the array
-   max :       count of elements per set block
-   f :         user callback function to call for each element in
-               the set
-   psv :       user data passed to the user callback when it is
-               invoked for a member of the set.
-   Returns
-   If the user callback returns 0, the loop continues. If the
-   user callback returns non zero then the looping through the
-   set ends, and that result is returned.                         */
-TYPELIB_PROC  uintptr_t TYPELIB_CALLTYPE  _ForAllInSet( GENERICSET *pSet, int unitsize, int max, FAISCallback f, uintptr_t psv );
-/* <combine sack::containers::sets::ForEachSetMember>
-   ForEachSetMember Callback function - for the function '
-   ForEachSetMember'                                       */
-typedef uintptr_t (CPROC *FESMCallback)(INDEX,uintptr_t);
-TYPELIB_PROC  uintptr_t TYPELIB_CALLTYPE  ForEachSetMember ( GENERICSET *pSet, int unitsize, int max, FESMCallback f, uintptr_t psv );
- //def __cplusplus
-#if 0
-#define DeclareSet(name)	                                struct name##set_tag {	               uint32_t set_size;	                             uint32_t element_size;	                         uint32_t element_cnt;	                          PGENERICSET pool;	                        name##set_tag() {	                        element_size = sizeof( name );	             element_cnt = MAX##name##SPERSET;	          set_size = (element_size * element_cnt )+ ((((element_cnt + 31 )/ 32 )- 1 ) * 4) + sizeof( GENERICSET );	 pool = NULL;	                               }	    ~name##set_tag() { DeleteSet( &pool ); }	 name* grab() { return (name*)GetFromSetEx( &pool, set_size, element_size, element_cnt DBG_SRC ); }	 name* grab(INDEX member) { return (name*)GetSetMemberEx( &pool, member, set_size, element_size, element_cnt DBG_SRC ); }	 name* get(INDEX member) { return (this)?(name*)GetUsedSetMemberEx( &pool, member, set_size, element_size, element_cnt DBG_SRC ):(NULL); }	 void drop( name* member ) { DeleteFromSetEx( pool, (POINTER)member, element_size, element_cnt ); }	 int valid( name* member ) { return MemberValidInSetEx( pool, (POINTER)member, element_size, element_cnt ); }	 uintptr_t forall( FAISCallback f, uintptr_t psv ) { if( this ) return _ForAllInSet( pool, element_size, element_cnt, f, psv ); else return 0; }	 };	       typedef struct name##set_tag *P##name##SET, name##SET;
-#define ForAllInSet(name, pset,f,psv) _ForAllInSet( (GENERICSET*)(pset), sizeof( name ), MAX##name##SPERSET, (f), (psv) )
-#else
-/* <combine sack::containers::sets::_ForAllInSet@GENERICSET *@int@int@FAISCallback@uintptr_t>
-   \ \                                                                                       */
-#define ForAllInSet(name, pset,f,psv) _ForAllInSet( (GENERICSET*)(pset), sizeof( name ), MAX##name##SPERSET, (f), (psv) )
-/* Performs an iteration over each allocated set member. Calls
-   the user provided callback routine with each element in the
-   set.
-   Parameters
-   pSet :      pointer to the set to iterate
-   unitsize :  size of each element
-   max :       max count of elements per set block
-   f :         function to call ( uintptr_t (*)(INDEX,uintptr_t) )
-   psv :       user data value to pass to function as uintptr_t
-   Returns
-   uintptr_t - this value is the return of the user function if
-   the function does not return 0. A non zero return from the
-   user callback stops iteration.                                */
-#define ForEachSetMember(name,pset,f,psv) ForEachSetMember( (GENERICSET*)(pset),sizeof(name),MAX##name##SPERSET, (f), (psv) )
-#endif
-//---------------------------------------------------------------------------
-_SETS_NAMESPACE_END
-_TEXT_NAMESPACE
-// this defines more esoteric formatting notions...
-// these data blocks will be zero sized, and ahve the TF_FORMATEX
-// bit set.
-//#define DEFAULT_COLOR 0xF7
-//#define PRIOR_COLOR 0xF6 // this does not change the color....
-// these enumerated ops put in the foreground field of a format
-// with a flag of TF_FORMATEX will cause the specified operation
-// to be carried out on a display (not files) or generated into
-// the appropriate sequence (ansi out encode)
-// -- correction
-//  this is encoded into its own field for the format
-// size, due to machine optimization, 16 bits were free
-// this was expanded and used for all information
-// a segment may contain extended op, color, attributes,
-// and text, everything short of a font for it...
-//  - not sure how to address that issue... there's
-// certainly modifications to current font... italic for
-// instance..
-	enum FORMAT_OPS {
-      /* this segment clears to the end of the line.  Its content is then added to the output */
-		FORMAT_OP_CLEAR_END_OF_LINE = 1
-        ,FORMAT_OP_CLEAR_START_OF_LINE
-                   ,
-						  FORMAT_OP_CLEAR_LINE
-						 ,
-						  FORMAT_OP_CLEAR_END_OF_PAGE
-                   ,
-						  FORMAT_OP_CLEAR_START_OF_PAGE
-						 ,
-/* clear the entire vieable page (pushes all content to history)
-                    set cursor home ;6*/
-						  FORMAT_OP_CLEAR_PAGE
-						 ,
-						  FORMAT_OP_CONCEAL
-                   ,
-						  FORMAT_OP_DELETE_CHARS
-                   ,
-						  FORMAT_OP_SET_SCROLL_REGION
-                   ,
-						  FORMAT_OP_GET_CURSOR
-						 ,
-						  FORMAT_OP_SET_CURSOR
-						 ,
-						  FORMAT_OP_PAGE_BREAK
-						 ,
-/* break between paragraphs - kinda same as lines...
-						  since lines are as long as possible... ;13 */
-						 FORMAT_OP_PARAGRAPH_BREAK
-						 ,
-/* Justify line(s if wrapped) to the right
-						   This attribute should be passed through to renderer;14*/
-                   FORMAT_OP_JUSTIFY_RIGHT
-						 ,
-/* Justify line(s if wrapped) to the center
-						 This attribute should be passed through to renderer;15*/
-                   FORMAT_OP_JUSTIFY_CENTER
-};
-//typedef struct text_color_tag { uint32_t color: 8; } TEXTCOLOR;
-// this was a 32 bit structure, but 8 fore, 8 back
-// 8 x, 8 y failed for positioning...
-// extended position, added more information
-// reduced color, 16 colors is really all that there
-// are... 4 bits... added bits for extended formatting
-// like blink, bold, wide, high
-// foreground/background  values will be
-// sufficient... they retain full informaiton
-//
-typedef struct format_info_tag
-{
-   /* bit-packed flags indicating the type of format information that is applied to this segment.*/
-	struct {
-		// extended operation from enumeration above...
-		// might shrink if more attributes are desired...
-		// if many more are needed, one might consider
-      // adding FONT!
-     /* this segment uses the prior foreground, not its own. */
-		BIT_FIELD prior_foreground : 1;
-     /* this segment uses the prior background, not its own. */
-		BIT_FIELD prior_background : 1;
-     /* this segment uses the default foreground, not its own. */
-		BIT_FIELD default_foreground : 1;
-      /* this segment uses the default background, not its own. */
-		BIT_FIELD default_background : 1;
-      /* the foreground color of this segment (0-16 standard console text [ANSI text]) */
-		BIT_FIELD foreground : 4;
-      /* the background color of this segment (0-16 standard console text [ANSI text]) */
-		BIT_FIELD background : 4;
-      /* a bit indicating the text should blink if supported */
-		BIT_FIELD blink : 1;
-      /* a bit indicating the foreground and background color should be reversed */
-		BIT_FIELD reverse : 1;
-		// usually highly is bolder, perhaps it's
-      // a highlighter effect and changes the background
-		BIT_FIELD highlight : 1;
-		// this is double height modifications to the font...
-		BIT_FIELD tall : 1;
-      // this is thicker characters...
-		BIT_FIELD bold : 1;
-      // draw a line under the text...
-		BIT_FIELD underline : 1;
-		// strike through - if able, draw a line right
-		// through the middle of the text... maybe
-		// it's a wiggly scribble line?  maybe that
-      // could be extended again?
-		BIT_FIELD strike : 1;
-      // text is drawn wide (printer kinda font?)
-		BIT_FIELD wide : 1;
-       // this is pretty common......
-		BIT_FIELD italic : 1;
-		// --
-		// these flags are free, but since we already have text segments
-		// and I'm bringing in consoles, perhaps we should consider using
-		// this to describe captions, but provide the api layer for CTEXTSTR
-		// --
-		// position data remains constant.
-		// text is mounted at the top/left of the
-		// first character... (unless center, then
-		// the position specifies the middle of the text
-		// draw vertical instead of horizontal
-		BIT_FIELD bVertical:1;
-		// draw opposite/upside down from normal
-		// vertical/down, right/left upside down if not centered
-		// if centered, the text pivots around position.
-		BIT_FIELD bInvert:1;
-		// 0 = default alignment 1 = left, 2 = center 3 = right
-		// 0 is not set, the flag set in the lower 32 bit flags
-		// is not needed any longer.... anything non zero
-		// is that operation to apply.
-		BIT_FIELD bAlign:2;
-      /* format op indicates one of the enum FORMAT_OPS applies to this segment */
-		BIT_FIELD format_op : 7;
-	} flags;
-	// if x,y are valid segment will have TF_POSFORMAT set...
-	union {
-		/* Coordinate information attached to a text segment. */
-		/* Positioning specification of this text segment. with
-		   basically 0 format options, position is used.
-		   Position represents the distance from this segment to the
-		   prior segment in count of tabs and spaces.
-		   coords specifies an x,y coordinate location for the segment.
-		   Usage of this union is dependant on <link text::format_info_tag::flags@1::format_op, format_op>. */
-		struct {
-         // Signed coordinate of this segment on a text display.  May be relative depending on format_op.
-			int16_t x;
-         // Signed coordinate of this segment on a text display.  May be relative depending on format_op.
-			int16_t y;
-		} coords;
-		/* Defines the distance from the prior segment in count of tabs
-		   and spaces (mostly count of spaces).                         */
-		struct {
-   // tabs preceed spaces....
-			uint16_t tabs;
- // not sure what else to put with this...
-			uint16_t spaces;
-		} offset;
-	} position;
-} FORMAT, *PFORMAT;
- // special coordinate which is NO coordinate
-#define IGNORE_CURSOR_POS -16384
-/* test flag, format has position data */
-#define TF_FORMATPOS (TF_FORMATABS|TF_FORMATREL|TF_FORMATEX)
-/* these flags are used in PTEXT.flags member
- applications may use these flags to group expressions
- will affect the BuildLine but is not generated by library.
-( TF_QUOTE, TF_SQUOTE, TF_BRACKET, TF_BRACE, TF_PAREN, and TF_TAG).
-*/
-enum TextFlags {
-   // declared in program data.... do NOT release
- TF_STATIC    = 0x00000001,
-   // double quoted string segment " "
- TF_QUOTE     = 0x00000002,
-   // single quoted string ' '
- TF_SQUOTE    = 0x00000004,
-   // bracketed expression []
- TF_BRACKET   = 0x00000008,
-   // braced expression {}
- TF_BRACE     = 0x00000010,
-   // parenthised expression ()
- TF_PAREN     = 0x00000020,
-   // HTML tag like expression &lt;&gt;
- TF_TAG       = 0x00000040,
-   // foreground is FORMAT_OP
- TF_FORMATEX  = 0x00000080,
-   // x,y position used (relative)
- TF_FORMATREL = 0x00000100,
-   // size field extually points at PTEXT
- TF_INDIRECT  = 0x00000200,
-   // format position is x/y - else space count
- TF_FORMATABS = 0x00000800,
-   // set during burst for last segment...
- TF_COMPLETE  = 0x00001000,
-   // set for non-text variable
- TF_BINARY    = 0x00002000,
-   // on release release indrect also...
- TF_DEEP      = 0x00004000,
-   // set on first segment to send to omit lead \r\n
- TF_NORETURN  = 0x00008000,
-// these values used originally for ODBC query construction....
-// these values are flags stored on the indirect following a value
-// label...
-// Low bound of value...
-  TF_LOWER     = 0x00010000,
-// these values used originally for ODBC query construction....
-// these values are flags stored on the indirect following a value
-// label...
-  // Upper bound of a value...
-  TF_UPPER     = 0x00020000,
-// these values used originally for ODBC query construction....
-// these values are flags stored on the indirect following a value
-// label...
-// boundry may be ON this value...
- TF_EQUAL     = 0x00040000,
-   // this segment is not a permanent part (SubstToken)
- TF_TEMP      = 0x00080000,
-  // this is something special do not treat as text indirect.
- TF_APPLICATION = 0x00100000,
-};
-//--------------------------------------------------------------------------
-// flag combinatoin which represents actual data is present even with 0 size
-// extended format operations (position, ops) are also considered data.
-#define IS_DATA_FLAGS (TF_QUOTE|TF_SQUOTE|TF_BRACKET|TF_BRACE|                              TF_PAREN|TF_TAG|TF_FORMATEX|TF_FORMATABS|TF_FORMATREL)
-// this THis defines/initializes the data part of a PTEXT/TEXT structure.
-// used with DECLTEXTSZTYPE
-#define DECLDATA(name,length) struct {size_t size; TEXTCHAR data[length];} name
-#define DECLTEXTSZTYPE( name, size ) struct {    uint32_t flags;    struct text_segment_tag *Next, *Prior;    FORMAT format;    DECLDATA(data, size); } name
-/* A macro to declare a structure which is the same physically
-   as a PTEXT, (for declaring static buffers). Has to be cast to
-   (PTEXT) is used. Is defined as a size, but no string content.
-   Parameters
-   name :  name of the variable to create
-   size :  size of the static text element. (0 content)          */
-#define DECLTEXTSZ( name, size ) DECLTEXTSZTYPE( name,(size) )	 = { TF_STATIC, NULL, NULL, {{1,1  ,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}} }
-/* Defines an initializer block which can be used to satisfy a
-   TEXT elemnt of a structure
-   Parameters
-   str :  string content of the TEXT
-   Example
-   <code lang="c++">
-   TEXT something = DEFTEXT( "abc" );
-   </code>                                                     */
-#define DEFTEXT(str) {TF_STATIC,NULL,NULL,{{1,1}},{(sizeof(str)/sizeof(str[0]))-1,str}}
-/* A macro to declare a structure which is the same physically
-   as a PTEXT, (for declaring constant static strings
-   basically). Has to be cast to (PTEXT) is used.
-   Parameters
-   name :   name of the variable to create
-   value :  static string constant to initialize variable to.  */
-#define DECLTEXT(name, str) static DECLTEXTSZTYPE( name, (sizeof(str)/sizeof(str[0])) ) = DEFTEXT(str)
-/* Description
-   A Text segment, it is based on DataBlock that has a length
-   and an addtional region at the end of the structure which
-   contains the text of the segment. Segments may have
-   formatting attributes. Segments may be linked to other
-   segments in a NEXTLINE/PRIORLINE. Segments may have indirect
-   content, which may represent phrases. Sets of segments may
-   represent sentence diagrams. A Pointer to a <link text::TEXT, TEXT>
-   type.
-   TEXT is a type I created to provide a variety of functions.
-   One particular application was a common language processor,
-   and I created the TEXT structure to store elements which are
-   described by language. Sentences are words, and phases. A
-   phrase is a set of words, but sometimes a word is a phrase.
-   (sentence) = ( word ) ... (phrase ) ...
-   (phrase) = (word)...
-   hmm.. how to describe this.
-   <code lang="c++">
-   PTEXT phrase = NULL;
-   SegAppend( phrase, SegCreateFromText( "Test" ) );
-   </code>
-   <code>
-   SegAppend( phrase, SegCreateFromText( "Test" ) );
-   SegAppend( phrase, SegCreateFromText( "Test" ) );
-   </code>
-   PTEXT segments point at other segments. A list of segments is
-   a sentence. Segments can have information encoded on them
-   that remove text from them. For instance, \< and \> tags
-   might be removed around a phrase and stored as an attribute
-   of the segment. A segment with such an attribute could be an
-   indirect segment that points at a list of words which are the
-   phrases in the tag.
-   <code lang="c++">
-   a map of two segments, and their content...
-       (segment with TF_TAG) -\> (segment with TF_TAG)
-             |                        |
-             \+ - ("html")             + - (body) -\> (background="#000000")
-   would actually expand to
-      \<html\>\<body background="#000000"\>
-   </code>
-   See Also
-   SegCreate
-   burst
-   TextParse
-   SegAppend
-   SegSubst
-   SegSplit
-   SegGrab
-   SegDelete
-   LineRelease
-   BuildLine
-   and also.....
-   PVARTEXT                                                                  */
-typedef struct text_segment_tag
-{
-	// then here I could overlap with pEnt .bshadow, bmacro, btext ?
-   uint32_t flags;
-	/* This points to the next segment in the sentence or phrase. NULL
-	   if at the end of the line.                                      */
-		struct text_segment_tag *Next;
-	/* This points to the prior segment in the sentence or phrase. (NULL
-	   if at the first segment)                                          */
-		struct text_segment_tag *Prior;
-	/* format is 64 bits.
-      it's two 32 bit bitfields (position, expression)
-	 valid if TF_FORMAT is set... */
-	FORMAT format;
-   /* A description of the data stored here.  It is compatible with a DATABLOCk.... */
-   struct {
-	   /* unsigned size; size is sometimes a pointer value...
-                  this means bad thing when we change platforms... Or not, since we went to uintptr_t which is big enough for a pointer. */
-		uintptr_t size;
-		/* the data of the test segment
-		 beginning of var data - this is created size+sizeof(TEXT) */
-		   TEXTCHAR  data[1];
-	} data;
-} TEXT, *PTEXT;
-//
-// PTEXT DumpText( PTEXT somestring )
-//    PTExT (single data segment with full description \r in text)
-TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  DumpText ( PTEXT text );
-//SegCreateFromText( ".." );
-// Burst, SegAppend, SegGrab
-// segments are ment to be lines, the meaninful tag "TF_NORETURN" means it's part of the prior line.
-//--------------------------------------------------------------------------
-#define HAS_WHITESPACE(pText) ( pText && ( (pText)->format.position.offset.spaces || (pText)->format.position.offset.tabs ) )
-/* A convenient macro to go from one segment in a line of text
-   to the next segment.                                        */
-#define NEXTLINE(line)   ((PTEXT)(((PTEXT)line)?(((PTEXT)line)->Next):(NULL)))
-/* A convenient macro to go from one segment in a line of text
-   to the prior segment.                                       */
-#define PRIORLINE(line)  ((PTEXT)(((PTEXT)line)?(((PTEXT)line)->Prior):(NULL)))
-/* Link one PTEXT segment to another. Sets one half of the links
-   appropriate for usage.
-   Example
-   This example sets the prior pointer of 'word' to 'line'.
-   <code>
-   PTEXT line;
-   PTEXT word;
-   SETPRIORLINE( word, line );
-   </code>                                                       */
-#define SETPRIORLINE(line,p) ((line)?(((line)->Prior) = (PTEXT)(p)):0)
-/* Link one PTEXT segment to another. Sets one half of the links
-   appropriate for usage.
-   Example
-   This example sets the next pointer of 'line' to 'word'.
-   <code lang="c#">
-   PTEXT line;
-   PTEXT word;
-   SETNEXTLINE( line, word );
-   </code>                                                       */
-#define SETNEXTLINE(line,p)  ((line)?(((line)->Next ) = (PTEXT)(p)):0)
-/* Sets a pointer to PTEXT to the first text segment in the
-   list.                                                    */
-#define SetStart(line)     for(; line && PRIORLINE(line);line=PRIORLINE(line))
-/* Sets a PTEXT to the last segment that it points to.
-   Parameters
-   line :  segment in the line to move to the end of.
-   Remarks
-   Updates the variable passed to point to the last segment. */
-#define SetEnd(line)      for(; line && NEXTLINE(line); line=NEXTLINE(line))
-// might also check to see if pseg is an indirect - setting this size would be BAD
-#define SetTextSize(pseg, sz ) ((pseg)?((pseg)->data.size = (sz )):0)
-/* gets the indect segment content (if any) from a PTEXT
-   segment.                                              */
-TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  GetIndirect(PTEXT segment );
-/* Get the format flags of a PTEXT.
-                                    */
-TYPELIB_PROC  uint32_t TYPELIB_CALLTYPE  GetTextFlags( PTEXT segment );
-/* Gets the text segment length. */
-TYPELIB_PROC  size_t TYPELIB_CALLTYPE  GetTextSize( PTEXT segment );
-/* Gets the text of a PTEXT segment. (convert to a CTEXTSTR)
-   Parameters
-   segment :  segment to get the string content from         */
-TYPELIB_PROC  TEXTSTR TYPELIB_CALLTYPE  GetText( PTEXT segment );
-// by registering for TF_APPLICTION is set on the segment
-// and flags anded with the segment flags match, the
-// function is called.... the result is the actual
-// segment of this - since a TF_APPLICATION is also
-// TF_INDIRECT - using the size to point to some application
-// defined structure instead of a PTEXT structure.
-TYPELIB_PROC  void TYPELIB_CALLTYPE  RegisterTextExtension ( uint32_t flags, PTEXT(CPROC*)(uintptr_t,POINTER), uintptr_t );
-// similar to GetIndirect - but results in the literal pointer
-// instead of the text that the application may have registered to result with.
-TYPELIB_PROC  POINTER TYPELIB_CALLTYPE  GetApplicationPointer ( PTEXT text );
-/* Used to set the content of a segment to some application
-   defined value. This allows a users application to store
-   chunks of data in lists of text. These external chunks are
-   handled like other words.
-   Parameters
-   text :  this is the text segment to set application data on
-   p :     this is a pointer to application data               */
-TYPELIB_PROC  void TYPELIB_CALLTYPE  SetApplicationPointer ( PTEXT text, POINTER p);
-/* Set segment's indirect data.
-   Parameters
-   segment :  pointer to a TEXT segment to set the indirect content
-              of.
-   data :     pointer to a PTEXT to be referenced indirectly.       */
-#define SetIndirect(Seg,Where)  ( (Seg)->data.size = ((uintptr_t)(Where)-(uintptr_t)NULL) )
-		/* these return 1 for more(l1&gt;l2) -1 for (l1&lt;l2) and 0 for match.
-       */
-TYPELIB_PROC  int TYPELIB_CALLTYPE  SameText ( PTEXT l1, PTEXT l2 );
-/* A test if one PTEXT is similar to another PTEXT.
-   Parameters
-   l1 :  PTEXT segment one
-   l2 :  PTEXT segment two
-   Return Value List
-   \<0 :  l1 with case insensitive comparison is less then l2
-   0 :    Texts compare case insenitive match
-   \>0 :  l1 with case insensitive comparison is more than l2 */
-TYPELIB_PROC  int TYPELIB_CALLTYPE  LikeText ( PTEXT l1, PTEXT l2 );
-/* Compares if text is like a C string. Case Sensitive.
-   <b>Returns</b>
-   TRUE if they are alike.
-   FALSE if they are different.
-   <b>Parameters</b>                                    */
-TYPELIB_PROC  int TYPELIB_CALLTYPE  TextIs  ( PTEXT pText, CTEXTSTR text );
-/* Compares if text is like a C string. Case insensitive (like).
-   Returns
-   TRUE if they are alike.
-   FALSE if they are different.
-   Parameters
-   pText :  PTEXT segment to compare
-   text :   C string buffer to compare against                   */
-TYPELIB_PROC  int TYPELIB_CALLTYPE  TextLike  ( PTEXT pText, CTEXTSTR text );
-/* Compares if text is like a C string. Case insensitive (like). Uses min string length for max match.
-   Returns
-   TRUE if they are similar (both case insensitive using shorter of the strings for maxlen).
-   FALSE if they are different.
-   Parameters
-   pText :  PTEXT segment to compare
-   text :   C string buffer to compare against                   */
-TYPELIB_PROC  int TYPELIB_CALLTYPE  TextSimilar  ( PTEXT pText, CTEXTSTR text );
-//#define SameText( l1, l2 )  ( strcmp( GetText(l1), GetText(l2) ) )
-#define textmin(a,b) ( (((a)>0)&&((b)>0))?(((a)<(b))?(a):(b)):(((a)>0)?(a):((b)>0)?(b):0) )
-#ifdef __LINUX__
-#  include <strings.h>
-/* windows went with stricmp() and strnicmp(), whereas linux
- went with strcasecmp() and strncasecmp()                  */
-#  define strnicmp strncasecmp
-/* windows went with stricmp() and strnicmp(), whereas linux
-   went with strcasecmp() and strncasecmp()                  */
-#  define stricmp strcasecmp
-#endif
-/* Copy segment formatting to another segment... */
-TYPELIB_PROC  void TYPELIB_CALLTYPE  SegCopyFormat( PTEXT to_this, PTEXT copy_this );
-/* Create a text segment of sepecified size; inclues one more character for NUL terminator */
-TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateEx( size_t nSize DBG_PASS );
-/* Create a PTEXT with specified number of character capacity.
-   Example
-   <code lang="c#">
-   PTEXT text = SegCreate( 10 );
-   </code>                                                     */
-#define SegCreate(s) SegCreateEx(s DBG_SRC)
-/* \    See Also
-   <link DBG_PASS>
-   <link SegCreateFromText> */
-TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateFromTextEx( CTEXTSTR text DBG_PASS );
-/* Creates a PTEXT segment from a string.
-   Example
-   <code lang="c++">
-   PTEXT line = SegCreateFromText( "Around the world in a day." );
-   </code>                                                         */
-#define SegCreateFromText(t) SegCreateFromTextEx(t DBG_SRC)
-/* \    See Also
-   <link DBG_PASS>
-   <link SegCreateFromChar> */
-TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateFromCharLenEx( const char *text, size_t len DBG_PASS );
-/* \    See Also
-   <link DBG_PASS>
-   <link SegCreateFromChar> */
-TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateFromCharEx( const char *text DBG_PASS );
-/* Creates a PTEXT segment from a string.
-   Example
-   <code lang="c++">
-   PTEXT line = SegCreateFromChar( "Around the world in a day." );
-   </code>                                                         */
-#define SegCreateFromChar(t) SegCreateFromCharEx(t DBG_SRC)
-/* \    See Also
-   <link DBG_PASS>
-   <link SegCreateFromChar> */
-#define SegCreateFromCharLen(t,len) SegCreateFromCharLenEx((t),(len) DBG_SRC)
-/* \    See Also
-   <link DBG_PASS>
-   <link SegCreateFromWide> */
-TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateFromWideLenEx( const wchar_t *text, size_t len DBG_PASS );
-/* \    See Also
-   <link DBG_PASS>
-   <link SegCreateFromWide> */
-TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateFromWideEx( const wchar_t *text DBG_PASS );
-/* Creates a PTEXT segment from a string.
-   Example
-   <code lang="c++">
-   PTEXT line = SegCreateFromWideLen( L"Around the world in a day.", 26 );
-   </code>                                                         */
-#define SegCreateFromWideLen(t,len) SegCreateFromWideLenEx((t),(len) DBG_SRC)
-/* \    See Also
-   <link DBG_PASS>
-   <link SegCreateFromWide> */
-#define SegCreateFromWide(t) SegCreateFromWideEx(t DBG_SRC)
-/* \    See Also
-   <link DBG_PASS>
-   <link SegCreateIndirect> */
-TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateIndirectEx( PTEXT pText DBG_PASS );
-/* Creates a text segment that refers to the parameter
-   indirectly. The new segment is not really a clone, but a
-   reference of the original PTEXT.
-   Example
-   <code lang="c#">
-   PTEXT phrase = SegCreateIndirect( SegAppend( SegCreateFromText( "Hello" )
-                                              , SegCreateFromText( "World" ) ) );
-   </code>
-   The resulting phrase is a single segment with no prior or
-   next, but its content is "HelloWorld" if it was passed to
-   buildline... it's go the content of the two text segments
-   linked together, but not in its buffer. It is actually a 0
-   length buffer for a TEXT segment.
-                                                                                  */
-#define SegCreateIndirect(t) SegCreateIndirectEx(t DBG_SRC)
-/* \    See Also
-   <link DBG_PASS>
-   <link SegDuplicate> */
-TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegDuplicateEx( PTEXT pText DBG_PASS);
-/* This duplicates a specific segment. It duplicates the first
-   segment of a string. If the segment has indirect data, then
-   the first segment of the indirect data is duplicated.       */
-#define SegDuplicate(pt) SegDuplicateEx( pt DBG_SRC )
-/* Duplicates a linked list of segments.
-   Duplicates the structure of a line. The resulting line is an
-   exact duplicate of the input line. All segments linked in
-   exactly the same sorts of ways.
-   Parameters
-   line :  list of segments to duplicate                        */
-TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  LineDuplicateEx( PTEXT pText DBG_PASS );
-/* <combine sack::containers::text::LineDuplicateEx@PTEXT pText>
-   \ \                                                           */
-#define LineDuplicate(pt) LineDuplicateEx(pt DBG_SRC )
-/* \    See Also
-   <link DBG_PASS>
-   <link TextDuplicate> */
-TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  TextDuplicateEx( PTEXT pText, int bSingle DBG_PASS );
-/* Duplicate the whole string of text to another string with
-   exactly the same content.                                 */
-#define TextDuplicate(pt,s) TextDuplicateEx(pt,s DBG_SRC )
-/* \    See Also
-   <link DBG_PASS>
-   <link SegCreateFromInt> */
-TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateFromIntEx( int value DBG_PASS );
-/* Creates a text segment from a 64 bit integer.
-   Example
-   <code>
-   PTEXT number = SegCreateFromInt( 3314 );
-   </code>                                       */
-#define SegCreateFromInt(v) SegCreateFromIntEx( v DBG_SRC )
-/* Converts an integer to a PTEXT segment.
-   Parameters
-   _64bit_value :  integer value to convert to a PTEXT segment. */
-TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateFrom_64Ex( int64_t value DBG_PASS );
-/* Create a text segment from a uint64_t bit value. (long long int) */
-#define SegCreateFrom_64(v) SegCreateFrom_64Ex( v DBG_SRC )
-/* \    See Also
-   <link DBG_PASS>
-   <link SegCreateFromFloat> */
-TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegCreateFromFloatEx( float value DBG_PASS );
-/* Creates a text segment from a floating point value. Probably
-   uses something like '%g' to format output. Fairly limited.
-   Example
-   <code lang="c++">
-   PTEXT short_PI = SegCreateFromFloat( 3.14 );
-   </code>                                                      */
-#define SegCreateFromFloat(v) SegCreateFromFloatEx( v DBG_SRC )
-/* Appends a list of segments to an existing list of segments. This
-   assumes that the additional segment is referncing the head of
-   the segment list.
-   Parameters
-   source :  source list to add to
-   other :   additional segments to add to source.                  */
-TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegAppend   ( PTEXT source, PTEXT other );
-/* Inserts a segment before another segment.
-   Parameters
-   what :    what to insert into the list
-   before :  insert the segments before this segment
-   Returns
-   The parameter 'what'.                             */
-TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegInsert   ( PTEXT what, PTEXT before );
-/* This expands a segment by a number of characters.
-   Parameters
-   PTEXT :  the segment to expand
-   int :    count of character to expand by
-   Returns
-   A pointer to a new segment that is bigger, but has the same
-   existing content.                                           */
-TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegExpandEx (PTEXT source, INDEX nSize DBG_PASS );
-/* <combine sack::containers::text::SegExpandEx@PTEXT@INDEX nSize>
-   \ \                                                             */
-#define SegExpand(s,n) SegExpandEx( s,n DBG_SRC )
-/* Release a linked list of PTEXT segments.
-   Parameters
-   segments :  a segment in a list of segments to delete, first
-               this routine goes to the start of the segment
-               list, and then deletes all segments in the list.
-   DBG_PASS :  debug file and line information                  */
-TYPELIB_PROC  void TYPELIB_CALLTYPE   LineReleaseEx (PTEXT line DBG_PASS );
-/* Release a line of text.
-   A line may be a single segment.
-   This is the proper way to dispose of PTEXT segments.
-   Any segment in the line may be passed, the first segment is
-   found, and then all segments in the line are deleted.       */
-#define LineRelease(l) LineReleaseEx(l DBG_SRC )
-/* \
-   <b>See Also</b>
-   <link DBG_PASS>
-   <link SegRelease> */
-TYPELIB_PROC  void TYPELIB_CALLTYPE  SegReleaseEx( PTEXT seg DBG_PASS );
-/* Release a single segment. UNSAFE. Does not respect that it is
-   in a list.
-   See Also
-   <link LineRelease>                                            */
-#define SegRelease(l) SegReleaseEx(l DBG_SRC )
-/* Adds a part of input to the segment list of output.
-   Parameters
-   output\ :   the segment list to append to.
-   input\ :    the input buffer to append from
-   offset :    starting offset in 'input' to start from
-   length :    how much from 'offset' in input to append as a new
-               segment to output.
-   DBG_PASS :  \file and line debugging information               */
-TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegConcatEx   (PTEXT output,PTEXT input,int32_t offset,size_t length DBG_PASS);
-/* <combine sack::containers::text::SegConcatEx@PTEXT@PTEXT@int32_t@size_t length>
-   looks like it takes a piece of one segment and appends it to
-   another....
-   Needs More research to document correctly and exemplify.                     */
-#define SegConcat(out,in,ofs,len) SegConcatEx(out,in,ofs,len DBG_SRC)
-/* Removes a segment from a list of segments. Links what was
-   prior and what was after together. Sets both next and prior
-   of the segment unlinked to NULL.
-   Example
-   <code lang="c++">
-   SegUnlink( segment );
-   </code>
-   Returns
-   The segment passed.                                         */
-TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegUnlink   (PTEXT segment);
-/* Breaks a list of PTEXT segments at the specified segment and
-   \returns a segment that was before the specified.
-   Parameters
-   segment :  segment to break the chain at
-   Returns
-   Any existing segment before the segment to break at.
-   Example
-   <code lang="c++">
-   {
-      PTEXT segs;
-      PTEXT breakat;
-      PTEXT leftover;
-		&#47;* ... segs gets populated with some segments ... *&#47;
-      breakat = NEXTLINE( segs );
-   </code>
-   <code>
-      breakat = NEXTLINE( segs );
-      leftover = segbreak( breakat );
-      // now breakat begins a new chain of segments
-      // leftover is the segment that was just before breakat
-      SegStart( leftover );  // leftover would be equal to segs...
-   }
-   </code>                                                         */
-TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegBreak    (PTEXT segment);
-/* Removes a segment from a list. It also releases the segment.
-    Example
-    <code lang="c#">
-    SegDelete( segment );
-    </code>
-    the result is NULL;                                          */
-TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegDelete   (PTEXT segment);
-/* removes segment from any list it might be in, returns
-   segment.                                              */
-TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegGrab     (PTEXT segment);
-/* Substitute one PTEXT segment for another in a list of PTEXT
-   segments.
-   Parameters
-   _this :  This is the segment to remove
-   that :   This is the segment to subustitute with. This may be
-            a list of segments, and it is linked in from the
-            first segment to the prior to '_this' and the last to
-            the next after '_this'
-   Returns
-   \Returns the '_this' that was substituted.                     */
-TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegSubst    ( PTEXT _this, PTEXT that );
-/* \    See Also
-   <link DBG_PASS>
-   <link SegSplit> */
-TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  SegSplitEx( PTEXT *pLine, INDEX nPos DBG_PASS);
-/* Split a PTEXT segment.
-   Example
-   \    <code lang="c++">
-   PTEXT result = SegSplit( &amp;old_string, 5 );
-   </code>
-   Returns
-   PTEXT new_string;
-   Remarks
-   the old string segment is split at the position indicated. The
-   pointer to the old segment is modified to point to now two
-   segments linked dynamically, each part of the segment after
-   the split. If the index is beyond the bounds of the segment,
-   the segment remains unmodified.                                */
-#define SegSplit(line,pos) SegSplitEx( line, pos DBG_SRC )
-TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  FlattenLine ( PTEXT pLine );
-/* Create a highest precision signed integer from a PTEXT. */
-TYPELIB_PROC  int64_t TYPELIB_CALLTYPE  IntCreateFromSeg( PTEXT pText );
-/* Converts a text to the longest precision signed integer
-   value.
-     allows +/- leadin ([-*]|[+*])*
-     supports 0x### (hex), 0b#### (binary), 0o#### (octal), 0### (octal)
-	 decimal 1-9[0-9]*
-	 buggy implementation supports +/- inline continue number and are either ignored(+)
-	 or changes the overall sign of the number(-).  A Decimal definatly ends the number.
-	 And octal/binary digits aren't checked for range, so 8/9 will over-flow in octal,
-	 and 2-9 overflow to upper bits in octal...
-	    0b901090 // would be like   0b 10100110    0b1001 +  010 + 1001<<3 + 0
-   */
-TYPELIB_PROC  int64_t TYPELIB_CALLTYPE  IntCreateFromText( CTEXTSTR p );
-/* Converts a text to the longest precision signed integer
-   value.  Does the work of IntCreateFromText.
-   IntCreateFromTextRef updates the pointer passed by reference so
-   the pointer ends at the first character after the returned number.
-   */
-TYPELIB_PROC  int64_t TYPELIB_CALLTYPE  IntCreateFromTextRef( CTEXTSTR *p_ );
-/* Create a high precision floating point value from PTEXT
-   segment.                                                */
-TYPELIB_PROC  double TYPELIB_CALLTYPE  FloatCreateFromSeg( PTEXT pText );
-/* Create a high precision floating point value from text
-   string.                                                */
-TYPELIB_PROC  double TYPELIB_CALLTYPE  FloatCreateFromText( CTEXTSTR p, CTEXTSTR *pp );
-//
-// IsSegAnyNumber returns 0 if no, 1 if is int, 2 if is float
-//   if pfNumber or piNumber are available then the text pointer
-//   will be updated to the next segment after what was used to resolve
-//   the number.
-//   bUseAllSegs is for testing pTexts which are indirect, such that
-//      only all segments within the indirect segment will result valid.
-//   pfNumber and piNumber may be passed as NULL, and the function can still
-// be used to determine ifnumber
-//   the number resulting in the values pointed to will be filled in
-//    with (*pfNumber)=FltCreateFromSeg(p) (or Int as appropriate)
-//
-//#define IsNumber(p) IsSegAnyNumberEx( &(p), NULL, NULL, NULL, 0 )
-#define IsIntNumber(p, pint) IsSegAnyNumberEx( &(p), NULL, pint, NULL, 0 )
-/* Tests a PTEXT segment to see if it might be a floating point
-   number.                                                      */
-#define IsFltNumber(p, pflt) IsSegAnyNumberEx( &(p), pflt, NULL, NULL, 0 )
-/* Tests the content of a PTEXT to see if it might be a number.
-   Parameters
-   ppText :       pointer to PTEXT to check
-   pfNumber :     pointer to double to get result of number it's
-                  a float
-   piNumber :     pointer to a signed 64 bit value to get the
-                  \result if it's not a float.
-   pbIsInt :      point to a integer \- receives boolean result
-                  if the segment was an integer is TRUE else it's
-                  a double.
-   bUseAllSegs :  if TRUE, use all the segments starting with the
-                  first, and update the pointer to the next
-                  stgment. If false, use only the first segment. if
-                  uses all segments, it must also use ALL
-                  segments to get the number.
-   Returns
-   0 if not a number or fails.
-   1 if a valid conversion took place.                              */
-TYPELIB_PROC  int TYPELIB_CALLTYPE  IsSegAnyNumberEx ( PTEXT *ppText, double *pfNumber, int64_t *piNumber, int *pbIsInt, int bUseAllSegs );
-/* <combine sack::containers::text::IsSegAnyNumberEx@PTEXT *@double *@int64_t *@int *@int>
-   \ \                                                                                  */
-#define IsSegAnyNumber(pptext, pfNum, piNum, pbIsInt) IsSegAnyNumberEx( pptext, pfNum, piNum, pbIsInt, 0 )
-/* \Returns the amount of space required to store this segment,
-   and all indirect statements it contains.
-   Parameters
-   segment :   segment to measure
-   position :  starting position in the segment to measure from
-   nTabSize :  how big tabs are supposed to be
-   tabs :      list of tab positions (for arbitrary tab
-               positioning\- table column alignment?)           */
-TYPELIB_PROC  INDEX TYPELIB_CALLTYPE  GetSegmentSpaceEx ( PTEXT segment, INDEX position, int nTabs, INDEX *tabs);
-/* \Returns the amount of space required to store this segment,
-   and all indirect statements it contains.
-   Parameters
-   segment :   segment to measure
-   position :  starting position in the segment to measure
-               from
-   nTabSize :  how big tabs are supposed to be                  */
-TYPELIB_PROC  INDEX TYPELIB_CALLTYPE  GetSegmentSpace ( PTEXT segment, INDEX position, int nTabSize );
-/* Simlar to getsegment space... */
-TYPELIB_PROC  INDEX TYPELIB_CALLTYPE  GetSegmentLengthEx ( PTEXT segment, INDEX position, int nTabs, INDEX *tabs );
-/* \Returns the length of a single PTEXT segment.
-   Parameters
-   segment :   segment to measure
-   position :  string position in the string to measure
-   nTabSize :  how many characters a tab is supposed to be. */
-TYPELIB_PROC  INDEX TYPELIB_CALLTYPE  GetSegmentLength ( PTEXT segment, INDEX position, int nTabSize );
-/* Measure the length of a list of segments (combined length of
-   all linked segments)                                         */
-TYPELIB_PROC  INDEX TYPELIB_CALLTYPE  LineLengthExEx( PTEXT pt, LOGICAL bSingle, int nTabsize, PTEXT pEOL );
-TYPELIB_PROC  INDEX TYPELIB_CALLTYPE  LineLengthExx( PTEXT pt, LOGICAL bSingle,PTEXT pEOL );
-/* <combine sack::containers::text::LineLengthExEx@PTEXT@LOGICAL@int@PTEXT>
-   \ \                                                                      */
-#define LineLengthExx(pt,single,eol) LineLengthExEx( pt,single,8,eol)
-/* \    Parameters
-   Text segment :  PTEXT line or segment to get the length of
-   single :        boolean, if set then only a single segment is
-                   measured, otherwise all segments from this to
-                   the end are measured.                         */
-#define LineLengthEx(pt,single) LineLengthExx( pt,single,NULL)
-/* Computes the length of characters in a line, if all segments
-   in the line are flattened into a single word.                */
-#define LineLength(pt) LineLengthEx( pt, FALSE )
-/* Collapses an indirect segment or a while list of segments
-   into a single segment with content expanded. When passed to
-   things like TextParse and Burst, segments have their
-   positioning encoded to counters for tabs and spaces; the
-   segment itself contains only text without whitespace. Buildline
-   expands these segments into their plain text representation.
-   Parameters
-   pt :        pointer to a PTEXT segment.
-   bSingle :   if TRUE, build only the first segment. If the
-               segment is indirect, builds entire content of
-               indirect.
-   nTabsize :  how wide tabs are. When written into a line, tabs
-               are written as spaces. (maybe if 0, tabs are
-               emitted directly?)
-   pEOL :      the segment to use to represent an end of line. Often
-               this is a SegCreate(0) segment.                       */
-TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  BuildLineExEx( PTEXT pt, LOGICAL bSingle, int nTabsize, PTEXT pEOL DBG_PASS );
-/* Collapses an indirect segment or a while list of segments
-into a single segment with content expanded. When passed to
-things like TextParse and Burst, segments have their
-positioning encoded to counters for tabs and spaces; the
-segment itself contains only text without whitespace. Buildline
-expands these segments into their plain text representation.
-Parameters
-pt :        pointer to a PTEXT segment.
-bSingle :   if TRUE, build only the first segment. If the
-segment is indirect, builds entire content of
-indirect.
-pEOL :      the segment to use to represent an end of line. Often
-this is a SegCreate(0) segment.                       */
-TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  BuildLineExx( PTEXT pt, LOGICAL bSingle, PTEXT pEOL DBG_PASS );
-/* <combine sack::containers::text::BuildLineExEx@PTEXT@LOGICAL@int@PTEXT pEOL>
-\ \                                                                          */
-#define BuildLineExx(from,single,eol) BuildLineExEx( from,single,8,NULL DBG_SRC )
-/* <combine sack::containers::text::BuildLineExEx@PTEXT@LOGICAL@int@PTEXT pEOL>
-   \ \                                                                          */
-#define BuildLineEx(from,single) BuildLineExEx( from,single,8,NULL DBG_SRC )
-/* <combine sack::containers::text::BuildLineExEx@PTEXT@LOGICAL@int@PTEXT pEOL>
-   \     Flattens all segments in a line to a single segment result.
-*/
-#define BuildLine(from) BuildLineExEx( from, FALSE,8,NULL DBG_SRC )
-//
-// text parse - more generic flavor of burst.
-//
-//static CTEXTSTR normal_punctuation=WIDE("\'\"\\({[<>]}):@%/,;!?=*&$^~#`");
-// filter_to_space " \t"
-TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  TextParse ( PTEXT input, CTEXTSTR punctuation, CTEXTSTR filter_tospace, int bTabs, int bSpaces  DBG_PASS );
-/* normal_punctuation=WIDE("'"\\({[\<\>]}):@%/,;!?=*&amp;$^~#`");
-   Process a line of PTEXT into another line of PTEXT, but with
-   words parsed as appropriate for common language.
-   Parameters
-   input\ :  pointer to a list of PTEXT segments to parse.
-   Remarks
-   Burst is a simple method of breaking a sentence into its word
-   and phrase parts. It collapses space and tabs before words
-   into the word. Any space representation is space preceeding
-   the word. Sentences are also broken on any punctuation.
-   "({[\<\>]})'";;.,/?\\!@#$%^&amp;*=" for instances. + and - are
-   treated specially if they prefix numbers, otherwise they are
-   also punctuation. Also groups of '.' like '...' are kept
-   together. if the '.' is in a number, it is stored as part of
-   the number. Otherwise a '.' used in an abbreviation like P.S.
-   will be a '.' with 0 spaces followed by a segment also with 0
-   spaces. (unless it's the lsat one)
-   so initials are encoded badly.
-   Bugs
-   There is an exploit in the parser such that . followed by a
-   number will cause fail to break into seperate words. This is
-   used by configuration scripts to write binary blocks, and
-   read them back in, having the block parsed into a segment
-   correctly.
-   See Also
-   <link sack::containers::text::TextParse@PTEXT@CTEXTSTR@CTEXTSTR@int@int bSpaces, TextParse> */
-TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  burstEx( PTEXT input DBG_PASS);
-/* <combine sack::containers::text::burstEx@PTEXT input>
-   \ \                                                   */
-#define burst( input ) burstEx( (input) DBG_SRC )
-/* Compares a couple lists of text segments.
-   Parameters
-   pt1 :      pointer to a phrase
-   single1 :  use only the first word, not the whole phrase
-   pt2 :      pointer to a phrase
-   single2 :  use only the first segment, not the whole phrase
-   bExact :   if FALSE, match case insensitive, otherwise match
-              exact case.                                       */
-TYPELIB_PROC  int TYPELIB_CALLTYPE  CompareStrings( PTEXT pt1, int single1
-                            , PTEXT pt2, int single2
-                            , int bExact );
-/* This removes indirect segments, replacing them with their
-   indirect content.
-   Parameters
-   pLine :  pointer to a PTEXT segment list to flatten.      */
-TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  FlattenLine ( PTEXT pLine );
-/* Steps through a linked list of segments, just a convenient
-   for loop wrapper.                                          */
-#define FORALLTEXT(start,var)  for(var=start;var; var=NEXTLINE(var))
-/* returns number of characters filled into output.  Output needs to be at maximum 6 chars */
-TYPELIB_PROC int TYPELIB_CALLTYPE ConvertToUTF8( char *output, TEXTRUNE rune );
-/* returns number of characters filled into output.  Output needs to be at maximum 6 chars;  if overlong is set
-   characters are deliberatly padded to be overlong */
-TYPELIB_PROC int TYPELIB_CALLTYPE ConvertToUTF8Ex( char *output, TEXTRUNE rune, LOGICAL overlong );
-/* returns number of wchar filled into output.  Output needs to be at maximum 2 wchar. */
-TYPELIB_PROC int TYPELIB_CALLTYPE ConvertToUTF16( wchar_t *output, TEXTRUNE rune );
-TYPELIB_PROC TEXTRUNE TYPELIB_CALLTYPE GetUtfChar( const char **from );
-TYPELIB_PROC TEXTRUNE TYPELIB_CALLTYPE GetUtfCharIndexed( const char *from, size_t *index, size_t length );
-TYPELIB_PROC TEXTRUNE TYPELIB_CALLTYPE GetPriorUtfChar( const char *start, const char **from );
-TYPELIB_PROC TEXTRUNE TYPELIB_CALLTYPE GetPriorUtfCharIndexed( const char *from, size_t *index );
-TYPELIB_PROC TEXTRUNE TYPELIB_CALLTYPE GetUtfCharW( const wchar_t **from );
-TYPELIB_PROC TEXTRUNE TYPELIB_CALLTYPE GetUtfCharIndexedW( const wchar_t *from, size_t *index );
-TYPELIB_PROC TEXTRUNE TYPELIB_CALLTYPE GetPriorUtfCharW( const wchar_t *start, const wchar_t **from );
-TYPELIB_PROC TEXTRUNE TYPELIB_CALLTYPE GetPriorUtfCharIndexedW( const wchar_t *from, size_t *index );
-TYPELIB_PROC size_t TYPELIB_CALLTYPE GetDisplayableCharacterCount( const char *string, size_t max_bytes );
-TYPELIB_PROC CTEXTSTR TYPELIB_CALLTYPE GetDisplayableCharactersAtCount( const char *string, size_t character_index );
-TYPELIB_PROC size_t TYPELIB_CALLTYPE  GetDisplayableCharacterBytes( const char *string, size_t character_count );
-/* You Must Deallocate the result */
-TYPELIB_PROC char * TYPELIB_CALLTYPE WcharConvert_v2 ( const wchar_t *wch, size_t len, size_t *outlen DBG_PASS );
-/* You Must Deallocate the result */
-TYPELIB_PROC  char * TYPELIB_CALLTYPE  WcharConvertExx ( const wchar_t *wch, size_t len DBG_PASS );
-/* You Must Deallocate the result */
-TYPELIB_PROC  char * TYPELIB_CALLTYPE  WcharConvertEx ( const wchar_t *wch DBG_PASS );
-/* <combine sack::containers::text::WcharConvertExx@wchar_t *@size_t len>
-   \ \                                                                    */
-#define WcharConvertLen(s,len) WcharConvertExx(s, len DBG_SRC )
-/* <combine sack::containers::text::WcharConvertExx@wchar_t *@size_t len>
-   \ \                                                                    */
-#define WcharConvert(s) WcharConvertEx(s DBG_SRC )
-/* You Must Deallocate the result */
-TYPELIB_PROC wchar_t * TYPELIB_CALLTYPE CharWConvertExx ( const char *wch, size_t len DBG_PASS );
-/* Convert wchar_t strings to char strings.
-   Parameters
-   string :    wchar_t string to convert
-   DBG_PASS :  debug file and line information
-   Returns
-   A char * string. This string must be Release()'ed or
-   Deallocate()'ed by the user.                         */
-TYPELIB_PROC wchar_t * TYPELIB_CALLTYPE CharWConvertEx ( const char *wch DBG_PASS );
-/* <combine sack::containers::text::CharWConvertExx@char *@size_t len>
-   \ \                                                                 */
-#define CharWConvertLen(s,len) CharWConvertExx(s,len DBG_SRC )
-/* <combine sack::containers::text::CharWConvertExx@char *@size_t len>
-   \ \                                                                 */
-#define CharWConvert(s) CharWConvertEx(s DBG_SRC )
-//--------------------------------------------------------------------------
-/* This is a string collector type.  It has an interface to be able to vtprintf( vartext, "format string", ... ); which appends the specified string to the collected text.
-  Example
-   PVARTEXT pvt = VarTextCreate();
-   vtprintf( pvt, "hello world!" );
-   {
-      PTEXT text = VarTextGet( pvt );
-	  printf( "Text is : %s(%d)", GetText( text ), GetTextSize( text ) );
-	  LineRelease( text );
-   }
-   VarTextDestroy( &pvt );
-   */
-typedef struct vartext_tag *PVARTEXT;
-/* Creates a variable text collector. Allows specification of
-   initial size and amount to expand by. SQL Command line sample
-   utility uses this and allocates like 10,000 initial and sets
-   expand as 40,000, because it expects to build very large
-   strings, and expansion of 32 at a time is ludicrous; if the
-   space required is more than the expansion factor, then it is
-   expanded by the amount required plus the expansion factor.
-   Parameters
-   initial :   amount of initial buffer
-   exand_by :  how much to expand the buffer by when more room
-               is needed
-   DBG_PASS :  debug file and line parameters.                   */
-TYPELIB_PROC  PVARTEXT TYPELIB_CALLTYPE  VarTextCreateExEx ( uint32_t initial, uint32_t expand DBG_PASS );
-/* <combine sack::containers::text::VarTextCreateExEx@uint32_t@uint32_t expand>
-   \ \                                                                */
-#define VarTextCreateExx(i,e) VarTextCreateExEx(i,e DBG_SRC )
-/* <combine sack::containers::text::VarTextCreateExEx@uint32_t@uint32_t expand>
-   Creates a variable text collector. Default initial size and
-   expansion is 0 and 32.
-                                                                      */
-TYPELIB_PROC  PVARTEXT TYPELIB_CALLTYPE  VarTextCreateEx ( DBG_VOIDPASS );
-/* The simplest, most general way to create a PVARTEXT
-   collector. The most extended vartext creator allows
-   specification of how long the initial buffer is, and how much
-   the buffer expands by when required. This was added to
-   optimize building HUGE SQL queries, working withing 100k
-   buffers that expanded by 50k at a time was a lot less
-   operations than expanding 32 bytes or something at a time.    */
-#define VarTextCreate() VarTextCreateEx( DBG_VOIDSRC )
-/* Empties and destroys all resources associated with the
-   variable text collector.
-   Parameters
-   pvt * :     address of a PVARTEXT reference to destroy. Sets
-               the pointer to NULL when it's destroyed.
-   DBG_PASS :  debugging file and line parameters
-   Example
-   <code lang="c++">
-   {
-      PVARTEXT pvt = VarTextCreate();
-      VarTextDestroy( &amp;pvt );
-   }
-   void Function( int something DBG_PASS )
-   {
-      pvt = VarTextCreateEx( DBG_RELAY );
-      VarTextDestroyEx( &amp;pvt DBG_RELAY );
-   }
-   </code>
-   C++ Syntax
-   \ \                                                          */
-TYPELIB_PROC  void TYPELIB_CALLTYPE  VarTextDestroyEx ( PVARTEXT* DBG_PASS );
-/* Destroy a VarText collector. */
-#define VarTextDestroy(pvt) VarTextDestroyEx( pvt DBG_SRC )
-/* \Internal function - used to initialize a VARTEXT structure. */
-TYPELIB_PROC  void TYPELIB_CALLTYPE  VarTextInitEx( PVARTEXT pvt DBG_PASS);
-/* Probably should not be exported. Initializes a VARTEXT
-   structure to prepare it for subsequent VarText operations. */
-#define VarTextInit(pvt) VarTextInitEx( (pvt) DBG_SRC )
-/* Empties a PVARTEXT structure.
-   Parameters
-   pvt :  PVARTEXT to empty.     */
-TYPELIB_PROC  void TYPELIB_CALLTYPE  VarTextEmptyEx( PVARTEXT pvt DBG_PASS);
-/* <combine sack::containers::text::VarTextEmptyEx@PVARTEXT pvt>
-   \ \                                                           */
-#define VarTextEmpty(pvt) VarTextEmptyEx( (pvt) DBG_SRC )
-/* Add a single character to a vartext collector.
-   Note
-   \    Parameters
-   pvt :       PVARTEXT to add character to
-   c :         character to add
-   DBG_PASS :  optional debug information         */
-TYPELIB_PROC  void TYPELIB_CALLTYPE  VarTextAddCharacterEx( PVARTEXT pvt, TEXTCHAR c DBG_PASS );
-TYPELIB_PROC  void TYPELIB_CALLTYPE  VarTextAddRuneEx( PVARTEXT pvt, TEXTRUNE c, LOGICAL overlong DBG_PASS );
-/* Adds a single character to a PVARTEXT collector.
-   Example
-   <code lang="c++">
-   PVARTEXT pvt = VarTextCreate();
-   VarTextAddCharacter( pvt, 'a' );
-   </code>                                          */
-#define VarTextAddCharacter(pvt,c) VarTextAddCharacterEx( (pvt),(c) DBG_SRC )
-/* Adds a single rune to a PVARTEXT collector. (may be multiple characters convert to UTF8)
-   Example
-   <code lang="c++">
-   PVARTEXT pvt = VarTextCreate();
-   VarTextAddRune( pvt, 'a' );
-   </code>                                          */
-#define VarTextAddRune(pvt,c) VarTextAddRuneEx( (pvt),(c), FALSE DBG_SRC )
-/* Adds a length of data to the vartext. This allows strings
-   with nuls included to be added.
-   Parameters
-   pvt :       PVARTEXT to add data to
-   block :     pointer to data to add
-   size :      length of data block to add
-	DBG_PASS :  optional file and line parameters             */
-#define VARTEXT_ADD_DATA_NULTERM ((size_t)0xFF000000)
-TYPELIB_PROC  void TYPELIB_CALLTYPE  VarTextAddDataEx( PVARTEXT pvt, CTEXTSTR block, size_t length DBG_PASS );
-/* Adds a single character to a PVARTEXT collector.
-   Example
-   <code lang="c++">
-   PVARTEXT pvt = VarTextCreate();
-   VarTextAddData( pvt, "test one", 8 );
-   </code>                                          */
-#define VarTextAddData(pvt,block,length) VarTextAddDataEx( (pvt),(block),(length) DBG_SRC )
-/* Commits the currently collected text to segment, and adds the
-   segment to the internal line accumulator.
-		 returns true if any data was added...
-       move any collected text to commit... */
-TYPELIB_PROC  LOGICAL TYPELIB_CALLTYPE  VarTextEndEx( PVARTEXT pvt DBG_PASS );
-/* <combine sack::containers::text::VarTextEndEx@PVARTEXT pvt>
-   \ \                                                         */
-#define VarTextEnd(pvt) VarTextEndEx( (pvt) DBG_SRC )
-/* Gets the length of the current collection in the VARTEXT.
-   Parameters
-   pvt :  PVARTEXT collector to get the length.              */
-TYPELIB_PROC  INDEX TYPELIB_CALLTYPE  VarTextLength( PVARTEXT pvt );
-/* Gets the text segment built in the VarText. The PVARTEXT is
-   set to empty. Clears the collector.
-   Parameters
-   pvt :  PVARTEXT to get text from.                           */
-TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  VarTextGetEx( PVARTEXT pvt DBG_PASS );
-/* <combine sack::containers::text::VarTextGetEx@PVARTEXT pvt>
-   \ \                                                         */
-#define VarTextGet(pvt) VarTextGetEx( (pvt) DBG_SRC )
-/* Used to look at the vartext collector and get the current
-   collection. Does not clear the collector.
-   Parameters
-   pvt :       PVARTEXT collector to peek at
-   DBG_PASS :  debugging file and line parameters
-   Return Value List
-   NULL :      No data
-   not NULL :  text segment which is in the collector.       */
-TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  VarTextPeekEx ( PVARTEXT pvt DBG_PASS );
-/* \Returns the PTEXT that is currently in a PVARTEXT. It does
-   not alter the contents of the PVARTEXT. Do not LineRelease
-   this peeked value.                                          */
-#define VarTextPeek(pvt) VarTextPeekEx( (pvt) DBG_SRC )
-/* Increases the internal storage size of the variable text
-   collector.
-   Parameters
-   pvt :       the var text collector to expand
-   amount :    amount of size to expand the collector
-   DBG_PASS :  debugging file and line parameters           */
-TYPELIB_PROC  void TYPELIB_CALLTYPE  VarTextExpandEx( PVARTEXT pvt, INDEX size DBG_PASS );
-/* Add a specified number of characters to the amount of space
-   in the VARTEXT collector.                                   */
-#define VarTextExpand(pvt, sz) VarTextExpandEx( (pvt), (sz) DBG_SRC )
-//TYPELIB_PROC  int vtprintfEx( PVARTEXT pvt DBG_PASS TYPELIB_CALLTYPE  CTEXTSTR format, ... ;
-// note - don't include format - MUST have at least one parameter passed to ...
-//#define vtprintf(pvt, ...) vtprintfEx( (pvt) DBG_SRC, __VA_ARGS__ )
-TYPELIB_PROC  INDEX TYPELIB_CALLTYPE  vtprintfEx( PVARTEXT pvt, CTEXTSTR format, ... );
-/* <combine sack::containers::text::vtprintfEx@PVARTEXT@CTEXTSTR@...>
-   Note                                                               */
-#define vtprintf vtprintfEx
-/* variable argument VARTEXT printf. Is passed a PVARTEXT to
-   collect the formatted output using printf sort of formatting. */
-TYPELIB_PROC  INDEX TYPELIB_CALLTYPE  vvtprintf( PVARTEXT pvt, CTEXTSTR format, va_list args );
-/* encode binary buffer into base64 encoding.
-   outsize is updated with the length of the buffer.
- */
-TYPELIB_PROC  TEXTCHAR * TYPELIB_CALLTYPE  EncodeBase64Ex( const uint8_t* buf, size_t length, size_t *outsize, const char *encoding );
-/* decode base64 buffer into binary buffer
-   outsize is updated with the length of the buffer.
-   result should be Release()'d
- */
-TYPELIB_PROC  uint8_t * TYPELIB_CALLTYPE  DecodeBase64Ex( const char* buf, size_t length, size_t *outsize, const char *encoding );
-/* xor a base64 encoded string over a utf8 string, keeping the utf8 characters in the same length...
-   although technically this can result in invalid character encoding where upper bits get zeroed
-   result should be Release()'d
-*/
-TYPELIB_PROC  char * TYPELIB_CALLTYPE  u8xor( const char *a, size_t alen, const char *b, size_t blen, int *ofs );
-/* xor two base64 encoded strings, resulting in a base64 string
-   result should be Release()'d
-*/
-TYPELIB_PROC  char * TYPELIB_CALLTYPE  b64xor( const char *a, const char *b );
-//--------------------------------------------------------------------------
-// extended command entry stuff... handles editing buffers with insert/overwrite/copy/paste/etc...
-typedef struct user_input_buffer_tag {
-	// -------------------- custom cmd buffer extension
-  // position counter for pulling history; negative indexes are recalled commands.
-	int nHistory;
-  // a link queue which contains the prior lines of text entered for commands.
-	PLINKQUEUE InputHistory;
- // set to TRUE when nHistory has wrapped...
-	int   bRecallBegin;
-   /* A exchange-lock variable for controlling access to the
-      \history (so things aren't being read from it while it is
-      scrolling old data out).                                  */
-	uint32_t   CollectionBufferLock;
-  // used to store index.. for insert type operations...
-	INDEX CollectionIndex;
- // flag for whether we are inserting or overwriting
-	int   CollectionInsert;
- // flag for whether we are inserting or overwriting
-	int   storeCR;
- // used to store partial from GatherLine
-	PTEXT CollectionBuffer;
- // called when a buffer is complete.
-	void (CPROC*CollectedEvent)( uintptr_t psv, PTEXT text );
-  // passed to the event callback when a line is completed
-	uintptr_t psvCollectedEvent;
-} USER_INPUT_BUFFER, *PUSER_INPUT_BUFFER;
-/* Creates a buffer structure which behaves like the command
-   line command recall queue.
-                                                             */
-TYPELIB_PROC  PUSER_INPUT_BUFFER TYPELIB_CALLTYPE  CreateUserInputBuffer ( void );
-/* Destroy a created user input buffer. */
-TYPELIB_PROC  void TYPELIB_CALLTYPE  DestroyUserInputBuffer ( PUSER_INPUT_BUFFER *pci );
-// negative with SEEK_SET is SEEK_END -nPos
-enum CommandPositionOps {
-	// defined that the x,y position in the segment should be used for absolute positioning.
-   // can also be SEEK_SET
- COMMAND_POS_SET = 0,
- // defined that the x,y position in the segment should be used for relative positioning.
- // can also be SEEK_CUR
- COMMAND_POS_CUR = 1
-};
-/* Updates the current input position, for things like input,
-   etc. Some external process indicates where in the line to set
-   the cursor position.                                          */
-TYPELIB_PROC  LOGICAL TYPELIB_CALLTYPE  SetUserInputPosition ( PUSER_INPUT_BUFFER pci, int nPos, int whence );
-// bInsert < 0 toggle insert.  bInsert == 0 clear isnert(set overwrite) else
-// set insert (clear overwrite )
-TYPELIB_PROC  void TYPELIB_CALLTYPE  SetUserInputInsert ( PUSER_INPUT_BUFFER pci, int bInsert );
-TYPELIB_PROC  void TYPELIB_CALLTYPE  SetUserInputSaveCR( PUSER_INPUT_BUFFER pci, int bSaveCR );
-/* Get the next command in the queue in the speicifed direction
-   Parameters
-   pci :  pointer to command input buffer
-   bUp :  if TRUE \- get older command; else get the newer
-          command.                                              */
-TYPELIB_PROC  void TYPELIB_CALLTYPE  RecallUserInput ( PUSER_INPUT_BUFFER pci, int bUp );
-TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  GetUserInputLine( PUSER_INPUT_BUFFER pOutput );
-/* Add a buffer to the history buffer.
-                                       */
-TYPELIB_PROC  void TYPELIB_CALLTYPE  EnqueUserInputHistory ( PUSER_INPUT_BUFFER pci, PTEXT pHistory );
-/* Arbitrary PTEXT blocks are fed to the user input queue with
-   this.
-   Parameters
-   pci :     pointer to command buffer
-   stroke :  the stroke to add to the buffer (may be a whole
-             String or linked list of segments). or NULL if
-             getting existing input...
-   Return Value List
-   NULL :      There is no command available \- no text followed
-               by a newline.
-   not NULL :  A command line collected from the input text. There
-               may be multiple commands in a single 'stroke'
-               buffer.
-   Example
-   This may be used something like .... to add the storke to the
-   \input buffer, and while there is a result, get the result
-   from the buffer.
-   <code lang="c++">
-   {
-       PUSER_INPUT_BUFFER pci = CreateUserInputBuffer();
-       PTEXT result;
-       for( result = GatherUserInput( pci, new_stroke ); result; result = GatherUserInput( pci, NULL ) )
-       {
-       }
-   }
-   </code>                                                                                               */
-TYPELIB_PROC  PTEXT TYPELIB_CALLTYPE  GatherUserInput ( PUSER_INPUT_BUFFER pci, PTEXT stroke );
-/* delete 1 character at current user input index */
-TYPELIB_PROC  void TYPELIB_CALLTYPE  DeleteUserInput( PUSER_INPUT_BUFFER pci );
-/* Converts ascii character set to ebcidc. */
-TYPELIB_PROC TEXTSTR TYPELIB_CALLTYPE  ConvertAsciiEbdic( TEXTSTR text, INDEX length );
-/* Routine to convert from ebcdic character set to ascii. */
-TYPELIB_PROC TEXTSTR TYPELIB_CALLTYPE  ConvertEbcdicAscii( TEXTSTR text, INDEX length );
-/* Converts ascii 85 to ascii */
-TYPELIB_PROC TEXTSTR FtnATA( TEXTSTR buf );
-/* Converts ascii character set to ascii 85  */
-TYPELIB_PROC TEXTSTR ATFtnA( TEXTSTR buf );
-/* Expand characters which are outside of standard ascii to URI
-   compatible escapes.
-   Parameters
-   text :        Text to convert
-   length :      max length of text to convert
-   skip_slash :  if TRUE, keep slash characters as literal,
-                 otherwise they get converted.                  */
-TYPELIB_PROC TEXTSTR TYPELIB_CALLTYPE ConvertTextURI( CTEXTSTR text, INDEX length, int skip_slash );
-/* Converts URI escape characters like %3B to the appropriate
-   ascii characters. The resulting string must be released by
-   the application.
-   Parameters
-   text :    TEXTCHAR * string to convert.
-   length :  max length of text to convert.
-   Example
-   <code lang="c++">
-   TEXTCHAR *sample = WIDE( "https://www.google.com/#hl=en&amp;sugexp=eqn&amp;cp=11&amp;gs_id=1a&amp;xhr=t&amp;q=%3B+%5C+%2B+:+";
-   TEXTCHAR *result;
-   \result = ConvertURIText( sample, StrLen( sample ) );
-   \result == https://www.google.com/#hl=en&amp;sugexp=eqn&amp;cp=11&amp;gs_id=1a&amp;xhr=t&amp;q=;+\\+++:+
-   </code>                                                                                                                        */
-TYPELIB_PROC TEXTSTR TYPELIB_CALLTYPE ConvertURIText( CTEXTSTR text, INDEX length );
-TYPELIB_PROC LOGICAL TYPELIB_CALLTYPE ParseStringVector( CTEXTSTR data, CTEXTSTR **pData, int *nData );
-TYPELIB_PROC LOGICAL TYPELIB_CALLTYPE ParseIntVector( CTEXTSTR data, int **pData, int *nData );
-#ifdef __cplusplus
- //namespace text {
-}
-#endif
-//--------------------------------------------------------------------------
-#ifdef __cplusplus
-	namespace BinaryTree {
-#endif
-/* This type defines a specific node in the tree. It is entirely
-   private, and is a useless definition.                         */
-typedef struct treenode_tag *PTREENODE;
-/* Defines a Binary Tree.
-   See Also
-   <link CreateBinaryTree> */
-typedef struct treeroot_tag *PTREEROOT;
-/* This option may be passed to extended CreateBinaryTree
-   methods to disallow adding of duplicates. Otherwise
-   duplicates will be added; they will be added to the side of
-   the node with the same value that has less children. Trees
-   are created by default without this option, allowing the
-   addition of duplicates.
-   Example
-   <code lang="c++">
-   PTREEROOT = <link CreateBinaryTreeExtended>( BT_OPT_NODUPLICATES, NULL, NULL DBG_SRC );
-   </code>                                                                                 */
-#define BT_OPT_NODUPLICATES 1
-/* Generic Compare is the type declaration for the callback routine for user custom comparisons.
-  This routine should return -1 if new is less than old, it should return 1 if new is more than old, and it
-  should return 0 if new and old are the same key. */
-typedef int (CPROC *GenericCompare)( uintptr_t oldnode,uintptr_t newnode );
-/* Signature for the user callback passed to CreateBinaryTreeEx
-   that will be called for each node removed from the binary
-   list.                                                        */
-typedef void (CPROC *GenericDestroy)( CPOINTER user, uintptr_t key);
-/* when adding a node if Compare is NULL the default method of a
-   basic unsigned integer compare on the key value is done. if
-   Compare is specified the specified key value of the orginal
-   node (old) and of the new node (new) is added. Result of
-   compare should be ( \<0 (lesser)) ( 0 (equal)) ( \>0
-   (greater))
-   Example
-   <code lang="c++">
-   int CPROC MyGenericCompare( uintptr_t oldnode,uintptr_t newnode )
-   {
-   </code>
-   <code>
-      if(oldnode\>newnode)
-          return 1;
-      else if(oldnode\<newnode)
-          return -1;
-      else return 0;
-   </code>
-   <code lang="c++">
-      return (oldnode\>newnode)? 1
-             \:(oldnode\<newnode)? -1
-             \:0;
-   }
-   void CPROC MyGenericDestroy(POINTER user, uintptr_t key)
-   {
-      // do something custom with your user data and or key value
-   }
-   PTREEROOT tree = CreateBinaryTreeExtended( 0 // BT_OPT_NODUPLICATES
-                                            , MyGenericCompare
-                                            , MyGenericDestroy
-                                            <link DBG_PASS, DBG_SRC> );
-   </code>
-   See Also
-   <link CreateBinaryTreeExx>
-   <link CreateBinaryTreeEx>
-   <link CreateBinaryTree>                                               */
-TYPELIB_PROC  PTREEROOT TYPELIB_CALLTYPE  CreateBinaryTreeExtended( uint32_t flags
-															, GenericCompare Compare
-															, GenericDestroy Destroy DBG_PASS);
-/* This is the simpler case of <link CreateBinaryTreeExtended>,
-   which does not make you pass DBG_SRC.
-   Example
-   <code lang="c++">
-   PTREEROOT tree = CreateBinaryTreeExx( BT_OPT_NODUPLICATES, NULL, NULL );
-   </code>                                                                  */
-#define CreateBinaryTreeExx(flags,compare,destroy) CreateBinaryTreeExtended(flags,compare,destroy DBG_SRC)
-/* Creates a binary tree, allowing specification of comparison
-   and destruction routines.
-   Example
-   <code lang="c++">
-   PTREEROOT tree = CreateBinaryTreeEx( <link CreateBinaryTreeExtended, MyGenericCompare>, <link CreateBinaryTreeExtended, MyGenericDestroy> );
-   </code>                                                                                                                                      */
-#define CreateBinaryTreeEx(compare,destroy) CreateBinaryTreeExx( 0, compare, destroy )
-/* This is the simplest way to create a binary tree.
-   The default compare routine treats 'key' as an integer value
-   that is compared against other for lesser/greater condition.
-   This tree also allows duplicates to be added.
-   Example
-   <code lang="c++">
-   PTREEROOT tree = CreateBinaryTree();
-   </code>                                                      */
-#define CreateBinaryTree() CreateBinaryTreeEx( NULL, NULL )
-/* \    Example
-   <code lang="c++">
-   PTREEROOT tree = CreateBinaryTree();
-   DestroyBinaryTree( tree );
-   tree = NULL;
-   </code>                              */
-TYPELIB_PROC  void TYPELIB_CALLTYPE  DestroyBinaryTree( PTREEROOT root );
-/* Drops all the nodes in a tree so it becomes empty...
-   \    Example
-   <code lang="c++">
-   PTREEROOT tree = CreateBinaryTree();
-   ResetBinaryTree( tree );
-   tree = NULL;
-   </code>                              */
-TYPELIB_PROC  void TYPELIB_CALLTYPE  ResetBinaryTree( PTREEROOT root );
-/* Balances a binary tree. If data is added to a binary list in
-   a linear way (from least to most), the tree can become
-   unbalanced, and all be on the left or right side of data. This
-   routine can analyze branches and perform rotations so that
-   the tree can be discretely rebalanced.
-   Example
-   <code lang="c++">
-   <link PTREEROOT> tree;
-   // <link AddBinaryNode>...
-   BalanceBinaryTree( tree );
-   </code>                                                        */
-TYPELIB_PROC  void TYPELIB_CALLTYPE  BalanceBinaryTree( PTREEROOT root );
-/* \    See Also
-   <link AddBinaryNode>
-   <link DBG_PASS>
-                        */
-TYPELIB_PROC  int TYPELIB_CALLTYPE  AddBinaryNodeEx( PTREEROOT root
-                                                   , CPOINTER userdata
-                                                   , uintptr_t key DBG_PASS );
-/* Adds a user pointer identified by key to a binary list.
-   See Also
-   <link BinaryTree::CreateBinaryTree, CreateBinaryTree>
-   Example
-   <code lang="c++">
-   PTREEROOT tree = CreateBinaryTree();
-   uintptr_t key = 1;
-   POINTER data = NewArray( TEXTCHAR, 32 );
-   AddBinaryNode( tree, data, key );
-   </code>
-   Parameters
-   root :  PTREEROOT binary tree instance.
-   data :  POINTER to some user object.
-   key :   uintptr_t a integer type which can be used to identify
-           the data. (used to compare in the tree).<p /><p />If
-           the user has specified a custom comparison routine in
-           an extended CreateBinaryTree(), then this value might
-           be a pointer to some other data. Often the thing used
-           to key into a binary tree is a <link CTEXTSTR>.
-   Returns
-   The tree may be created with <link BT_OPT_NODUPLICATES>, in
-   which case this will result FALSE if the key is found
-   duplicated in the list. Otherwise this returns TRUE. if the
-   root parameter is NULL, the result is FALSE.                  */
-#define AddBinaryNode(r,u,k) AddBinaryNodeEx((r),(u),(k) DBG_SRC )
-//TYPELIB_PROC  int TYPELIB_CALLTYPE  AddBinaryNode( PTREEROOT root
-//                                    , POINTER userdata
-//                                    , uintptr_t key );
-TYPELIB_PROC  void TYPELIB_CALLTYPE  RemoveBinaryNode( PTREEROOT root, POINTER use, uintptr_t key );
-/* Search in a binary tree for the specified key.
-   Returns
-   user data POINTER if found, else NULL.
-   Example
-   <code lang="c++">
-   PTREEROOT tree;
-   void f( void )
-   {
-      CPOINTER mydata = FindInBinaryTree( tree, 5 );
-      if( mydata )
-      {
-          // found '5' as the key in the tree
-      }
-   }
-   </code>                                          */
-TYPELIB_PROC  CPOINTER TYPELIB_CALLTYPE  FindInBinaryTree( PTREEROOT root, uintptr_t key );
-// result of fuzzy routine is 0 = match.  100 = inexact match
-// 1 = no match, actual may be larger
-// -1 = no match, actual may be lesser
-// 100 = inexact match- checks nodes near for better match.
-TYPELIB_PROC  CPOINTER TYPELIB_CALLTYPE  LocateInBinaryTree( PTREEROOT root, uintptr_t key
-														, int (CPROC*fuzzy)( uintptr_t psv, uintptr_t node_key ) );
-/* During FindInBinaryTree and LocateInBinaryTree, the last
-   found result is stored. This function allows deletion of that
-   node.
-   Example
-   <code lang="c++">
-   FindInBinaryTree( tree, 5 );
-   RemoveLastFoundNode( tree );
-   </code>                                                       */
-TYPELIB_PROC  void TYPELIB_CALLTYPE  RemoveLastFoundNode(PTREEROOT root );
-/* Removes the currently browsed node from the tree.
-   See Also
-   <link GetChildNode>                               */
-TYPELIB_PROC  void TYPELIB_CALLTYPE  RemoveCurrentNode(PTREEROOT root );
-/* Basically this is meant to dump to a log, if the print
-   function is passed as NULL, then the tree's contents are
-   dumped to the log. It dumps a very cryptic log of how all
-   nodes in the tree are arranged. But by allowing the user to
-   provide a method to log his data and key, the logging is more
-   meaningful based on the application. The basic code for
-   managing trees and nodes works....
-   Example
-   <code>
-   int ForEachNode( POINTER user, uintptr_t key )
-   {
-       // return not 1 to dump to log the internal tree structure
-       return 0; // probably did own logging here, so don't log tree internal
-   }
-   <link PTREEROOT> tree;
-   void f( void )
-   {
-       DumpTree( tree, ForEachNode );
-   }
-   </code>                                                                    */
-TYPELIB_PROC  void TYPELIB_CALLTYPE  DumpTree( PTREEROOT root
-                          , int (*Dump)( CPOINTER user, uintptr_t key ) );
-/* See Also
-   <link GetChildNode> */
-TYPELIB_PROC  CPOINTER TYPELIB_CALLTYPE  GetLeastNodeEx( PTREEROOT root, POINTER *cursor );
-/* See Also
-   <link GetChildNode> */
-TYPELIB_PROC  CPOINTER TYPELIB_CALLTYPE  GetLeastNode( PTREEROOT root );
-/* See Also
-   <link GetChildNode> */
-TYPELIB_PROC  CPOINTER TYPELIB_CALLTYPE  GetGreatestNodeEx( PTREEROOT root, POINTER *cursor );
-/* See Also
-   <link GetChildNode> */
-TYPELIB_PROC  CPOINTER TYPELIB_CALLTYPE  GetGreatestNode( PTREEROOT root );
-/* See Also
-   <link GetChildNode> */
-TYPELIB_PROC  CPOINTER TYPELIB_CALLTYPE  GetLesserNodeEx( PTREEROOT root, POINTER *cursor );
-/* See Also
-   <link GetChildNode> */
-TYPELIB_PROC  CPOINTER TYPELIB_CALLTYPE  GetLesserNode( PTREEROOT root );
-/* See Also
-   <link GetChildNode> */
-TYPELIB_PROC  CPOINTER TYPELIB_CALLTYPE  GetGreaterNodeEx( PTREEROOT root, POINTER *cursor );
-/* See Also
-   <link GetChildNode> */
-TYPELIB_PROC  CPOINTER TYPELIB_CALLTYPE  GetGreaterNode( PTREEROOT root );
-/* \Returns the node that is set as 'current' in the tree. There
-   is a cursor within the tree that can be used for browsing.
-   See Also
-   <link GetChildNode>                                           */
-TYPELIB_PROC  CPOINTER TYPELIB_CALLTYPE  GetCurrentNodeEx( PTREEROOT root, POINTER *cursor );
-/* \Returns the node that is set as 'current' in the tree. There
-   is a cursor within the tree that can be used for browsing.
-   See Also
-   <link GetChildNode>                                           */
-TYPELIB_PROC  CPOINTER TYPELIB_CALLTYPE  GetCurrentNode( PTREEROOT root );
-/* This sets the current node cursor to the root of the node.
-   See Also
-   <link GetChildNode>                                        */
-TYPELIB_PROC  CPOINTER TYPELIB_CALLTYPE  GetRootNode( PTREEROOT root );
-/* See Also
-   <link GetChildNode> */
-TYPELIB_PROC  CPOINTER TYPELIB_CALLTYPE  GetParentNodeEx( PTREEROOT root, POINTER *cursor );
-/* See Also
-   <link GetChildNode> */
-TYPELIB_PROC  CPOINTER TYPELIB_CALLTYPE  GetParentNode( PTREEROOT root );
-/* While browsing the tree after a find operation move to the
-   next child node, direction 0 is lesser direction !0 is
-   greater.
-   Binary Trees have a 'current' cursor. These operations may be
-   used to browse the tree.
-   Example
-   \    <code>
-   // this assumes you have a tree, and it's fairly populated, then this demonstrates
-   // all steps of browsing.
-   POINTER my_data;
-   // go to the 'leftmost' least node. (as determined by the compare callback)
-   my_data = GetLeastNode( tree );
-   // go to the 'rightmost' greatest node. (as determined by the compare callback)
-   my_data = GetGreatestNode( tree );
-   // move to the node that is less than the current node.  (move to the 'left')
-   my_data = GetLesserNode( tree );
-   // move to the node that is greater than the current node.  (move to the 'right')
-   my_data = GetGreaterNode( tree );
-   // follow the tree to the left down from here
-   my_data = GetChildNode( tree, 0 );
-   // follow the tree to the right down from here
-   my_data = GetChildNode( tree, 1 );
-   // follow the tree up to the node above the current one.
-   //  (the one who's lesser or greater points at this)
-   my_data = GetParentNode( tree );
-   // this is probably the least useful, but someone clever might find a trick for it
-   // Move back to the node we were just at.
-   //  (makes the current the prior, and moves to what the prior was,
-   //     but then it's just back and forth between the last two; it's not a stack ).
-   my_data = GetPriorNode( tree );
-   </code>
-   A more practical example...
-   <code lang="c++">
-   POINTER my_data;
-   for( my_data = GetLeastNode( tree );
-        my_data;
-        my_data = GetGreaterNode( tree ) )
-   {
-        // browse the tree from least to most.
-   }
-   </code>                                                                            */
-TYPELIB_PROC  CPOINTER TYPELIB_CALLTYPE  GetChildNode( PTREEROOT root, int direction );
-/* See Also
-   <link GetChildNode> */
-TYPELIB_PROC  CPOINTER TYPELIB_CALLTYPE  GetChildNodeEx( PTREEROOT root, POINTER *cursor, int direction );
-/* See Also
-   <link GetChildNode> */
-TYPELIB_PROC  CPOINTER TYPELIB_CALLTYPE  GetPriorNodeEx( PTREEROOT root, POINTER *cursor );
-/* See Also
-   <link GetChildNode> */
-TYPELIB_PROC  CPOINTER TYPELIB_CALLTYPE  GetPriorNode( PTREEROOT root );
-/* \Returns the total number of nodes in the tree.
-   Example
-   <code lang="c++">
-   int total_nodes = GetNodeCount(tree);
-   </code>                                         */
-TYPELIB_PROC  int TYPELIB_CALLTYPE  GetNodeCount ( PTREEROOT root );
- // returns a shadow of the original.
-TYPELIB_PROC  PTREEROOT TYPELIB_CALLTYPE  ShadowBinaryTree( PTREEROOT root );
-#ifdef __cplusplus
- //namespace BinaryTree {
-	}
-#endif
-//--------------------------------------------------------------------------
-#ifdef __cplusplus
-namespace family {
-#endif
-/* A family tree structure, for tracking elements that have
-   multiple children.
-                                                            */
-typedef struct familyroot_tag *PFAMILYTREE;
-typedef struct familynode_tag *PFAMILYNODE;
-/* <unfinished>
-   Incomplete Work in progress (maybe) */
-TYPELIB_PROC  PFAMILYTREE TYPELIB_CALLTYPE  CreateFamilyTree ( int (CPROC *Compare)(uintptr_t key1, uintptr_t key2)
-															, void (CPROC *Destroy)(POINTER user, uintptr_t key) );
-/* <unfinished>
-   Incomplete, Family tree was never completed. */
-TYPELIB_PROC  POINTER TYPELIB_CALLTYPE  FamilyTreeFindChild ( PFAMILYTREE root
-														  , uintptr_t psvKey );
-/* <unfinished>
-   Incomplete, Family tree was never completed. */
-TYPELIB_PROC  POINTER  TYPELIB_CALLTYPE FamilyTreeFindChildEx ( PFAMILYTREE root, PFAMILYNODE root_node
-													 , uintptr_t psvKey );
-/* Resets the search cursors in the tree... */
-TYPELIB_PROC  void TYPELIB_CALLTYPE  FamilyTreeReset ( PFAMILYTREE *option_tree );
-/* Resets the content of the tree (should call destroy methods, at this time it does not) */
-TYPELIB_PROC  void TYPELIB_CALLTYPE  FamilyTreeClear ( PFAMILYTREE option_tree );
-/* <unfinished>
-   Incomplete Work in progress (maybe) */
-TYPELIB_PROC  PFAMILYNODE TYPELIB_CALLTYPE  FamilyTreeAddChild ( PFAMILYTREE *root, PFAMILYNODE parent, POINTER userdata, uintptr_t key );
-TYPELIB_PROC LOGICAL TYPELIB_CALLTYPE FamilyTreeForEachChild( PFAMILYTREE root, PFAMILYNODE node
-			, LOGICAL (CPROC *ProcessNode)( uintptr_t psvForeach, uintptr_t psvNodeData )
-			, uintptr_t psvUserData );
-TYPELIB_PROC LOGICAL TYPELIB_CALLTYPE FamilyTreeForEach( PFAMILYTREE root, PFAMILYNODE node
-			, LOGICAL (CPROC *ProcessNode)( uintptr_t psvForeach, uintptr_t psvNodeData, int level )
-			, uintptr_t psvUserData );
-#ifdef __cplusplus
- //namespace family {
-}
-#endif
-//--------------------------------------------------------------------------
-//--------------------------------------------------------------------------
-#ifdef __cplusplus
-//} // extern "c"
- // namespace containers
-}
- // namespace sack
-}
-using namespace sack::containers::link_stack;
-using namespace sack::containers::data_stack;
-using namespace sack::containers::data_list;
-using namespace sack::containers::data_queue;
-using namespace sack::containers::queue;
-using namespace sack::containers::BinaryTree;
-using namespace sack::containers::text;
-using namespace sack::containers::message;
-using namespace sack::containers::sets;
-using namespace sack::containers::family;
-using namespace sack::containers;
-#else
-// should 'class'ify these things....
-#endif
-#ifndef _TYPELIBRARY_SOURCE
-//#undef TYPELIB_PROC // we don't need this symbol after having built the right prototypes
-#endif
-#endif
-// $Log: sack_typelib.h,v $
-// Revision 1.99  2005/07/10 23:56:25  d3x0r
-// Fix types for C++...
-//
-//
-// Revision 1.39  2003/03/25 08:38:11  panther
-// Add logging
-//
-SACK_NAMESPACE
-#ifndef IS_DEADSTART
-// this is always statically linked with libraries, so they may contact their
-// core executable to know when it's done loading everyone else also...
-#  ifdef __cplusplus
-extern "C"
-#  endif
-#  if defined( WIN32 ) && !defined( __STATIC__ ) && !defined( __ANDROID__ )
-#    ifdef __NO_WIN32API__
-// DllImportAttribute ?
-#    else
-__declspec(dllimport)
-#    endif
-#  else
-#ifndef __cplusplus
-extern
-#endif
-#  endif
-/* a function true/false which indicates whether the root
-   deadstart has been invoked already. If not, one should call
-   InvokeDeadstart and MarkDeadstartComplete.
-   <code lang="c++">
-   int main( )
-   {
-       if( !is_deadstart_complete() )
-       {
-           InvokeDeadstart();
-           MarkDeadstartComplete()
-       }
-       ... your code here ....
-       return 0;  // or some other appropriate return.
-   }
-   </code>
-   sack::app::deadstart                                        */
-LOGICAL
-#  if defined( __WATCOMC__ )
-__cdecl
-#  endif
-is_deadstart_complete( void );
-#endif
-/* Define a routine to call for exit().  This triggers specific code to handle shutdown event registration */
-#ifndef NO_EXPORTS
-#  ifdef SACK_BAG_CORE_EXPORTS
-EXPORT_METHOD
-#  else
-IMPORT_METHOD
-#  endif
-#else
-#  ifndef SACK_BAG_CORE_EXPORTS
-	extern
-#  endif
-#endif
-		void CPROC BAG_Exit( int code );
-#ifndef NO_SACK_EXIT_OVERRIDE
-#define exit(n) BAG_Exit(n)
-#endif
- // namespace sack {
-SACK_NAMESPACE_END
-// this should become common to all libraries and programs...
-//#include <construct.h> // pronounced 'kahn-struct'
-/*
- *  Crafted by James Buckeyne
- *  Part of SACK github.com/d3x0r/SACK
- *
- *   (c) Freedom Collective 2000-2006++, 2016++
- *
- *   created to provide standard logging features
- *   lprintf( format, ... ); simple, basic
- *   if DEBUG, then logs to a file of the same name as the program
- *   if RELEASE most of this logging goes away at compile time.
- *
- *  standardized to never use int.
- */
-#ifndef LOGGING_MACROS_DEFINED
-#define LOGGING_MACROS_DEFINED
-#define SYSLOG_API CPROC
-#ifdef SYSLOG_SOURCE
-#define SYSLOG_PROC EXPORT_METHOD
-#else
-#define SYSLOG_PROC IMPORT_METHOD
-#endif
-#ifdef __cplusplus
-#define LOGGING_NAMESPACE namespace sack { namespace logging {
-#define LOGGING_NAMESPACE_END } }
-#else
-#define LOGGING_NAMESPACE
-#define LOGGING_NAMESPACE_END
-#endif
-#ifdef __cplusplus
-	namespace sack {
-/* Handles log output. Logs can be directed to UDP directed, or
-   broadcast, or localhost, or to a file location, and under
-   windows the debugging console log.
-   lprintf
-   SetSystemLog
-   SystemLogTime
-   there are options, when options code is enabled, which
-   control logging output and format. Log file location can be
-   specified generically for instance.... see Options.
-	This namespace contains the logging functions. The most basic
-   thing you can do to start logging is use 'lprintf'.
-   <code lang="c++">
-   lprintf( "My printf like format %s %d times", "string", 15 );
-   </code>
-   This function takes a format string and arguments compatible
-   with vsnprintf. Internally strings are truncated to 4k
-   length. (that is no single logging message can be more than
-   4k in length).
-   There are functions to control logging behavior.
-   See Also
-   SetSystemLog
-   SystemLogTime
-   SystemLogOptions
-   lprintf
-   _lprintf
-   xlprintf
-   _xlprintf
-                                                                 */
-		namespace logging {
-#endif
-/* \Parameters for SetSystemLog() to specify where the logging
-   should go.                                                  */
-enum syslog_types {
- // disable any log output.
-SYSLOG_NONE     =   -1
-,
-SYSLOG_UDP      =    0
-,
-SYSLOG_FILE     =    1
-,
- /* Set logging to output to a file. The file passed is a FILE*. This
-   may be a FILE* like stdout, stderr, or some file the
-   application opens.                                                */
-SYSLOG_FILENAME =    2
-,
- /* Set logging to go to a file, pass the string text name of the
-   \file to open as the second parameter of SetSystemLog.        */
-SYSLOG_SYSTEM   =    3
-,
- /* Specify that logging should go to system (this actually means
-   Windows system debugging channel. OutputDebugString() ).      */
-SYSLOG_UDPBROADCAST= 4
-// Allow user to specify a void UserCallback( char * )
-// which recieves the formatted output.
-,
-SYSLOG_CALLBACK    = 5
-,
- /* Send Logging to a specified user callback to handle. This
-   lets logging go anywhere else that's not already thought of. */
-SYSLOG_AUTO_FILE = SYSLOG_FILE + 100
- /* Send logging to a file. If the file is not open, open the
-   \file. If no logging happens, no log file is created.     */
-,
-SYSLOG_SOCKET_SYSLOGD
-};
-#if !defined( NO_LOGGING )
-#define DO_LOGGING
-#endif
-// this was forced, force no_logging off...
-#if defined( DO_LOGGING )
-#undef NO_LOGGING
-#endif
-#ifdef __LINUX__
-//---------------------------------------------------------------------------
-//---------------------------------------------------------------------------
-SYSLOG_PROC  LOGICAL SYSLOG_API  IsBadReadPtr ( CPOINTER pointer, uintptr_t len );
-#endif
-SYSLOG_PROC  CTEXTSTR SYSLOG_API  GetPackedTime ( void );
-//  returns the millisecond of the day (since UNIX Epoch) * 256 ( << 8 )
-// the lowest 8 bits are the timezone / 15.
-// The effect of the low [7/]8 bits being the time zone is that within the same millisecond
-// UTC +0 sorts first, followed by +1, +2, ... etc until -14, -13, -12,... -1
-// the low [7/]8 bits are the signed timezone
-// (timezone could have been either be hr*60 + min (ISO TZ format)
-// or in minutes (hr*60+mn) this would only take 7 bits
-// one would think 8 bit shifts would be slightly more efficient than 7 bits.
-// and sign extension for 8 bits already exists.
-// - REVISION - timezone with hr*100 does not divide by 15 cleanly.
-//     The timezone is ( hour*60 + min ) / 15 which is a range from -56 to 48
-//     minimal representation is 7 bits (0 - 127 or -64 - 63)
-//     still keeping 8 bits for shifting, so the effective range is only -56 to 48 of -128 to 127
-// struct time_of_day {
-//    uint64_t epoch_milliseconds : 56;
-//    int64_t timezone : 8; divided by 15... hours * 60 / 15
-// }
-// returns the nanosecond of the day (since UNIX Epoch) and timezone/15
-SYSLOG_PROC  int64_t SYSLOG_API GetTimeOfDay( uint64_t* tick, int8_t* ptz );
-// binary little endian order; somewhat
-typedef struct sack_expanded_time_tag
-{
-	uint16_t ms;
-	uint8_t sc,mn,hr,dy,mo;
-	uint16_t yr;
-	int8_t zhr, zmn;
-} SACK_TIME;
-typedef struct sack_expanded_time_tag *PSACK_TIME;
-// convert a integer time value to an expanded structure.
-SYSLOG_PROC void     SYSLOG_API ConvertTickToTime( int64_t, PSACK_TIME st );
-// convert a expanded time structure to a integer value.
-SYSLOG_PROC int64_t SYSLOG_API ConvertTimeToTick( PSACK_TIME st );
-// returns timezone as hours*100 + minutes.
-// result is often negated?
-SYSLOG_PROC  int SYSLOG_API GetTimeZone(void);
-//
-typedef void (CPROC*UserLoggingCallback)( CTEXTSTR log_string );
-SYSLOG_PROC  void SYSLOG_API  SetSystemLog ( enum syslog_types type, const void *data );
-SYSLOG_PROC  void SYSLOG_API  ProtectLoggedFilenames ( LOGICAL bEnable );
-SYSLOG_PROC  void SYSLOG_API  SystemLogFL ( CTEXTSTR FILELINE_PASS );
-SYSLOG_PROC  void SYSLOG_API  SystemLogEx ( CTEXTSTR DBG_PASS );
-SYSLOG_PROC  void SYSLOG_API  SystemLog ( CTEXTSTR );
-SYSLOG_PROC  void SYSLOG_API  LogBinaryFL ( const uint8_t* buffer, size_t size FILELINE_PASS );
-SYSLOG_PROC  void SYSLOG_API  LogBinaryEx ( const uint8_t* buffer, size_t size DBG_PASS );
-SYSLOG_PROC  void SYSLOG_API  LogBinary ( const uint8_t* buffer, size_t size );
-// logging level defaults to 1000 which is log everything
-SYSLOG_PROC  void SYSLOG_API  SetSystemLoggingLevel ( uint32_t nLevel );
-#if defined( _DEBUG ) || defined( _DEBUG_INFO )
-/* Log a binary buffer. Logs lines representing 16 bytes of data
-   at a time. The hex of each byte in a buffer followed by the
-   text is logged.
-   Example
-   <code lang="c#">
-   char sample[] = "sample string";
-   LogBinary( sample, sizeof( sample ) );
-   </code>
-   Results with the following output in the log...
-   <code>
-    73 61 6D 70 6C 65 20 73 74 72 69 6E 67 00 sample string.
-   </code>
-   The '.' at the end of 'sample string' is a non printable
-   character. characters 0-31 and 127+ are printed as '.'.       */
-#define LogBinary(buf,sz) LogBinaryFL((uint8_t*)(buf),sz DBG_SRC )
-#define SystemLog(buf)    SystemLogFL(buf DBG_SRC )
-#else
-// need to include the typecast... binary logging doesn't really care what sort of pointer it gets.
-#define LogBinary(buf,sz) LogBinary((uint8_t*)(buf),sz )
-//#define LogBinaryEx(buf,sz,...) LogBinaryFL(buf,sz FILELINE_NULL)
-//#define SystemLogEx(buf,...) SystemLogFL(buf FILELINE_NULL )
-#endif
-// int result is useless... but allows this to be
-// within expressions, which with this method should be easy.
-typedef INDEX (CPROC*RealVLogFunction)(CTEXTSTR format, va_list args )
-//#if defined( __GNUC__ )
-//	__attribute__ ((__format__ (__vprintf__, 1, 2)))
-//#endif
-	;
-typedef INDEX (CPROC*RealLogFunction)(CTEXTSTR format,...)
-#if defined( __GNUC__ )
-	__attribute__ ((__format__ (__printf__, 1, 2)))
-#endif
-	;
-SYSLOG_PROC  RealVLogFunction SYSLOG_API  _vxlprintf ( uint32_t level DBG_PASS );
-SYSLOG_PROC  RealLogFunction SYSLOG_API  _xlprintf ( uint32_t level DBG_PASS );
-// utility function to format a cpu delta into a buffer...
-// end-start is always printed... therefore tick_end-0 is
-// print absolute time... formats as millisecond.NNN
-SYSLOG_PROC  void SYSLOG_API  PrintCPUDelta ( TEXTCHAR *buffer, size_t buflen, uint64_t tick_start, uint64_t tick_end );
-// return the current CPU tick
-SYSLOG_PROC  uint64_t SYSLOG_API  GetCPUTick ( void );
-// result in nano seconds - thousanths of a millisecond...
-SYSLOG_PROC  uint32_t SYSLOG_API  ConvertTickToMicrosecond ( uint64_t tick );
-SYSLOG_PROC  uint64_t SYSLOG_API  GetCPUFrequency ( void );
-SYSLOG_PROC  CTEXTSTR SYSLOG_API  GetTimeEx ( int bUseDay );
-SYSLOG_PROC  void SYSLOG_API  SetSyslogOptions ( FLAGSETTYPE *options );
-/* When setting options using SetSyslogOptions() these are the
-   defines for the bits passed.
-   SYSLOG_OPT_OPENAPPEND - the file, when opened, will be opened
-   for append.
-   SYSLOG_OPT_OPEN_BACKUP - the file, if it exists, will be
-   renamed automatically.
-   SYSLOG_OPT_LOG_PROGRAM_NAME - enable logging the program
-   executable (probably the same for all messages, unless they
-   are network)
-   SYSLOG_OPT_LOG_THREAD_ID - enables logging the unique process
-   and thread ID.
-   SYSLOG_OPT_LOG_SOURCE_FILE - enable logging source file
-   information. See <link DBG_PASS>
-   SYSLOG_OPT_MAX - used for declaring a flagset to pass to
-   setoptions.                                                   */
-enum system_logging_option_list {
-		/* the file, when opened, will be opened for append.
-		 */
-		SYSLOG_OPT_OPENAPPEND
-										  ,
-  /* the file, if it exists, will be renamed automatically.
-										  */
-										  SYSLOG_OPT_OPEN_BACKUP
-                                ,
- /* enable logging the program executable (probably the same for
-                                   all messages, unless they are network)
-                                                                                                */
-                                 SYSLOG_OPT_LOG_PROGRAM_NAME
-										  ,
- /* enables logging the unique process and thread ID.
-										                                                       */
-                                 SYSLOG_OPT_LOG_THREAD_ID
-                                ,
- /* enable logging source file information. See <link DBG_PASS>
-                                                                                               */
-										   SYSLOG_OPT_LOG_SOURCE_FILE
-										  ,
-										  SYSLOG_OPT_MAX
-};
-// this solution was developed to provide the same
-// functionality for compilers that refuse to implement __VA_ARGS__
-// this therefore means that the leader of the function is replace
-// and that extra parenthesis exist after this... therefore the remaining
-// expression must be ignored... thereofre when defining a NULL function
-// this will result in other warnings, about ignored, or meaningless expressions
-# if defined( DO_LOGGING )
-#  define vlprintf      _vxlprintf(LOG_NOISE DBG_SRC)
-#  define lprintf       _xlprintf(LOG_NOISE DBG_SRC)
-#  define _lprintf(file_line,...)       _xlprintf(LOG_NOISE file_line,##__VA_ARGS__)
-#  define xlprintf(level)       _xlprintf(level DBG_SRC)
-#  define vxlprintf(level)       _vxlprintf(level DBG_SRC)
-# else
-#  ifdef _MSC_VER
-#   define vlprintf      (1)?(0):
-#   define lprintf       (1)?(0):
-#   define _lprintf(DBG_VOIDRELAY)       (1)?(0):
-#   define xlprintf(level)       (1)?(0):
-#   define vxlprintf(level)      (1)?(0):
-#  else
-#   define vlprintf(f,...)
-/* use printf formating to output to the log. (log printf).
-   Parameters
-   Format :  Just like printf, the format string to print.
-   ... :     extra arguments passed as required for the format.
-   Example
-   <code lang="c++">
-      lprintf( "Test Logging %d %d", 13, __LINE__ );
-   </code>                                                      */
-#   define lprintf(f,...)
-#   define  _lprintf(DBG_VOIDRELAY)       lprintf
-#   define xlprintf(level) lprintf
-#   define vxlprintf(level) lprintf
-#  endif
-# endif
-#undef LOG_WARNING
-#undef LOG_ADVISORIES
-#undef LOG_INFO
-// Defined Logging Levels
-enum {
-	  // and you are free to use any numerical value,
-	  // this is a rough guideline for wide range
-	  // to provide a good scaling for levels of logging
- // unless logging is disabled, this will be logged
-	LOG_ALWAYS = 1
- // logging level set to 50 or more will cause this to log
-	, LOG_ERRORS = 50
-	,
- /* Specify a logging level which only ERROR level logging is
-	   logged.                                                   */
- // logging level set to 50 or more will cause this to log
-	 LOG_ERROR = LOG_ERRORS
-	,
- // .......
-	 LOG_WARNINGS = 500
-	,
- // .......
-	 LOG_WARNING = LOG_WARNINGS
-   ,
- /* Use to specify that the log message is a warning level
-      message.                                               */
-    LOG_ADVISORY = 625
-   ,
-    LOG_ADVISORIES = LOG_ADVISORY
-	,
- /* A symbol to specify to log Adviseries, Warnings and Error
-	   level messages only.                                      */
-	 LOG_INFO = 750
-	  ,
- /* A moderate logging level, which is near maximum verbosity of
-	     logging.                                                     */
-	   LOG_NOISE = 1000
-     ,
- /* Define that the message is just noisy - though verbosly
-	  informative, it's level is less critical than even INFO.
-	  default iS LOG_NOISE which is 1000, an ddefault for disabling most messages
-	  is to set log level to 999.  Have to increase to 2000 to see debug, and this name
-     has beviously
-	  */
-      LOG_LEVEL_DEBUG = 2000
-	,
- /* Specify the message is of DEBUG importance, which is far
-	   above even NOISY. If debug logging is enabled, all logging,
-	   ERROR, WARNING, ADVISORY, INFO, NOISY and DEBUG will be
-	   logged.                                                     */
- // not quite a negative number, but really big
-	 LOG_CUSTOM = 0x40000000
-	,
- /* A bit with LOG_CUSTOM might be enabled, and the lower bits
-	   under 0x40000000 (all bits 0x3FFFFFFF ) can be used to
-	   indicate a logging type. Then SetLoggingLevel can be passed a
-	   mask of bits to filter types of messages.                     */
- // not quite a negative number, but really big
-	 LOG_CUSTOM_DISABLE = 0x20000000
-	// bits may be user specified or'ed with this value
-	// such that ...
-	// Example 1:SetSystemLoggingLevel( LOG_CUSTOM | 1 ) will
-	// enable custom logging messages which have the '1' bit on... a logical
-	// and is used to test the low bits of this value.
-	// example 2:SetSystemLogging( LOG_CUSTOM_DISABLE | 1 ) will disable logging
-	// of messages with the 1 bit set.
-  // mask of bits which may be used to enable and disable custom logging
-#define LOG_CUSTOM_BITS 0xFFFFFF
-};
- // this is a flag set consisting of 0 or more or'ed symbols
-enum SyslogTimeSpecifications {
- // disable time logging
- SYSLOG_TIME_DISABLE = 0,
- // enable is anything not zero.
- SYSLOG_TIME_ENABLE  = 1,
- // specify to log milliseconds
- SYSLOG_TIME_HIGH    = 2,
- // log the year/month/day also
- SYSLOG_TIME_LOG_DAY = 4,
- // log the difference in time instead of the absolute time
- SYSLOG_TIME_DELTA   = 8,
- // logs cpu ticks... implied delta
- SYSLOG_TIME_CPU     =16
-};
-/* Specify how time is logged. */
-SYSLOG_PROC void SYSLOG_API SystemLogTime( uint32_t enable );
-#ifndef NO_LOGGING
-#define OutputLogString(s) SystemLog(s)
-/* Depricated. Logs a format string that takes 0 parameters.
-   See Also
-   <link sack::logging::lprintf, lprintf>                    */
-#define Log(s)                                   SystemLog( s )
-#else
-#define OutputLogString(s)
-/* Depricated. Logs a format string that takes 0 parameters.
-   See Also
-   <link sack::logging::lprintf, lprintf>                    */
-#define Log(s)
-#endif
-/* Depricated. Logs a format string that takes 1 parameter.
-   See Also
-   <link sack::logging::lprintf, lprintf>                    */
-#define Log1(s,p1)                               lprintf( s, p1 )
-/* Depricated. Logs a format string that takes 2 parameters.
-   See Also
-   <link sack::logging::lprintf, lprintf>                    */
-#define Log2(s,p1,p2)                            lprintf( s, p1, p2 )
-/* Depricated. Logs a format string that takes 3 parameters.
-   See Also
-   <link sack::logging::lprintf, lprintf>                    */
-#define Log3(s,p1,p2,p3)                         lprintf( s, p1, p2, p3 )
-/* Depricated. Logs a format string that takes 4 parameters.
-   See Also
-   <link sack::logging::lprintf, lprintf>                    */
-#define Log4(s,p1,p2,p3,p4)                      lprintf( s, p1, p2, p3,p4)
-/* Depricated. Logs a format string that takes 5 parameters.
-   See Also
-   <link sack::logging::lprintf, lprintf>                    */
-#define Log5(s,p1,p2,p3,p4,p5)                   lprintf( s, p1, p2, p3,p4,p5)
-/* Depricated. Logs a format string that takes 6 parameters.
-   See Also
-   <link sack::logging::lprintf, lprintf>                    */
-#define Log6(s,p1,p2,p3,p4,p5,p6)                lprintf( s, p1, p2, p3,p4,p5,p6)
-/* Depricated. Logs a format string that takes 7 parameters.
-   See Also
-   <link sack::logging::lprintf, lprintf>                    */
-#define Log7(s,p1,p2,p3,p4,p5,p6,p7)             lprintf( s, p1, p2, p3,p4,p5,p6,p7 )
-/* Depricated. Logs a format string that takes 8 parameters.
-   See Also
-   <link sack::logging::lprintf, lprintf>                    */
-#define Log8(s,p1,p2,p3,p4,p5,p6,p7,p8)          lprintf( s, p1, p2, p3,p4,p5,p6,p7,p8 )
-/* Depricated. Logs a format string that takes 9 parameters.
-   See Also
-   <link sack::logging::lprintf, lprintf>                    */
-#define Log9(s,p1,p2,p3,p4,p5,p6,p7,p8,p9)       lprintf( s, p1, p2, p3,p4,p5,p6,p7,p8,p9 )
-/* Depricated. Logs a format string that takes 10 parameters.
-   See Also
-   <link sack::logging::lprintf, lprintf>                    */
-#define Log10(s,p1,p2,p3,p4,p5,p6,p7,p8,p9,p10)  lprintf( s, p1, p2, p3,p4,p5,p6,p7,p8,p9,p10 )
-LOGGING_NAMESPACE_END
-#ifdef __cplusplus
-using namespace sack::logging;
-#endif
-#endif
-// these macros test the the range of integer and unsigned
-// such that an unsigned > integer range is true if it is more than an maxint
-// and signed integer < 0 is less than any unsigned value.
-// the macro prefix SUS  or USS is the comparison type
-// Signed-UnSigned and UnSigned-Signed  depending on the
-// operand order.
-// the arguments passed are variable a and b and the respective types of those
-// if( SUS_GT( 324, int, 545, unsigned int ) ) {
-//    is >
-// }
-#  define SUS_GT(a,at,b,bt)   (((a)<0)?0:(((bt)a)>(b)))
-#  define USS_GT(a,at,b,bt)   (((b)<0)?1:((a)>((at)b)))
-#  define SUS_LT(a,at,b,bt)   (((a)<0)?1:(((bt)a)<(b)))
-#  define USS_LT(a,at,b,bt)   (((b)<0)?0:((a)<((at)b)))
-#  define SUS_GTE(a,at,b,bt)  (((a)<0)?0:(((bt)a)>=(b)))
-#  define USS_GTE(a,at,b,bt)  (((b)<0)?1:((a)>=((at)b)))
-#  define SUS_LTE(a,at,b,bt)  (((a)<0)?1:(((bt)a)<=(b)))
-#  define USS_LTE(a,at,b,bt)  (((b)<0)?0:((a)<=((at)b)))
-#if 0
-// simplified meanings of the macros
-#  define SUS_GT(a,at,b,bt)   ((a)>(b))
-#  define USS_GT(a,at,b,bt)   ((a)>(b))
-#  define SUS_LT(a,at,b,bt)   ((a)<(b))
-#  define USS_LT(a,at,b,bt)   ((a)<(b))
-#  define SUS_GTE(a,at,b,bt)  ((a)>=(b))
-#  define USS_GTE(a,at,b,bt)  ((a)>=(b))
-#  define SUS_LTE(a,at,b,bt)  ((a)<=(b))
-#  define USS_LTE(a,at,b,bt)  ((a)<=(b))
-#endif
-#ifdef __cplusplus
-using namespace sack;
-using namespace sack::containers;
-#endif
-#endif
-#endif
-// incldue this first so we avoid a conflict.
-// hopefully this comes from sack system?
-/*
- *  Created by Jim Buckeyne
- *
- *  Purpose
- *    Generalization of system routines which began in
- *   dekware development.
- *   - Process control (load,start,stop)
- *   - Library runtime link control (load, unload)
- *
- */
-#ifndef SYSTEM_LIBRARY_DEFINED
-#define SYSTEM_LIBRARY_DEFINED
-#ifdef SYSTEM_SOURCE
-#define SYSTEM_PROC(type,name) EXPORT_METHOD type CPROC name
-#else
-#define SYSTEM_PROC(type,name) IMPORT_METHOD type CPROC name
-#endif
-#ifdef __LINUX__
-// Hmm I thought that dlopen resulted in an int...
-// but this doc says void * (redhat9)
-//typedef void *HLIBRARY;
-#else
-//typedef HMODULE HLIBRARY;
-#endif
-#ifdef __cplusplus
-#define _SYSTEM_NAMESPACE namespace system {
-#define _SYSTEM_NAMESPACE_END }
-#else
-#define _SYSTEM_NAMESPACE
-#define _SYSTEM_NAMESPACE_END
-#endif
-#define SACK_SYSTEM_NAMESPACE SACK_NAMESPACE _SYSTEM_NAMESPACE
-#define SACK_SYSTEM_NAMESPACE_END _SYSTEM_NAMESPACE_END SACK_NAMESPACE_END
-#ifndef UNDER_CE
-#define HAVE_ENVIRONMENT
-#endif
-SACK_NAMESPACE
-	_SYSTEM_NAMESPACE
-typedef struct task_info_tag *PTASK_INFO;
-typedef void (CPROC*TaskEnd)(uintptr_t, PTASK_INFO task_ended);
-typedef void (CPROC*TaskOutput)(uintptr_t, PTASK_INFO task, CTEXTSTR buffer, size_t size );
-// Run a program completely detached from the current process
-// it runs independantly.  Program does not suspend until it completes.
-// Use GetTaskExitCode() to get the return code of the process
-#define LPP_OPTION_DO_NOT_HIDE           1
-// for services to launch normal processes (never got it to work; used to work in XP/NT?)
-#define LPP_OPTION_IMPERSONATE_EXPLORER  2
-#define LPP_OPTION_FIRST_ARG_IS_ARG      4
-#define LPP_OPTION_NEW_GROUP             8
-#define LPP_OPTION_NEW_CONSOLE          16
-#define LPP_OPTION_SUSPEND              32
-#define LPP_OPTION_ELEVATE              64
-SYSTEM_PROC( PTASK_INFO, LaunchPeerProgramExx )( CTEXTSTR program, CTEXTSTR path, PCTEXTSTR args
-                                               , int flags
-                                               , TaskOutput OutputHandler
-                                               , TaskEnd EndNotice
-                                               , uintptr_t psv
-                                                DBG_PASS
-                                               );
-SYSTEM_PROC( PTASK_INFO, LaunchProgramEx )( CTEXTSTR program, CTEXTSTR path, PCTEXTSTR args, TaskEnd EndNotice, uintptr_t psv );
-// launch a process, program name (including leading path), a optional path to start in (defaults to
-// current process' current working directory.  And a array of character pointers to args
-// args should be the NULL.
-SYSTEM_PROC( PTASK_INFO, LaunchProgram )( CTEXTSTR program, CTEXTSTR path, PCTEXTSTR  args );
-// abort task, no kill signal, sigabort basically.  Use StopProgram for a more graceful terminate.
-// if (!StopProgram(task)) TerminateProgram(task) would be appropriate.
-SYSTEM_PROC( uintptr_t, TerminateProgram )( PTASK_INFO task );
-SYSTEM_PROC( void, ResumeProgram )( PTASK_INFO task );
-// get first address of program startup code(?) Maybe first byte of program code?
-SYSTEM_PROC( uintptr_t, GetProgramAddress )( PTASK_INFO task );
-// before luanchProgramEx, there was no userdata...
-SYSTEM_PROC( void, SetProgramUserData )( PTASK_INFO task, uintptr_t psv );
-// attempt to implement a method on windows that allows a service to launch a user process
-// current systems don't have such methods
-SYSTEM_PROC( void, ImpersonateInteractiveUser )( void );
-// after launching a process should revert to a protected state.
-SYSTEM_PROC( void, EndImpersonation )( void );
-// generate a Ctrl-C to the task.
-// maybe also signal systray icon
-// maybe also signal process.lock region
-// maybe end process?
-// maybe then terminate process?
-SYSTEM_PROC( LOGICAL, StopProgram )( PTASK_INFO task );
-// ctextstr as its own type is a pointer so a
-//  PcTextStr is a pointer to strings -
-//   char ** - returns a quoted string if args have spaces (and escape quotes in args?)
-SYSTEM_PROC( TEXTSTR, GetArgsString )( PCTEXTSTR pArgs );
-// after a task has exited, this can return its code.
-// undefined if task has not exited (probably 0)
-SYSTEM_PROC( uint32_t, GetTaskExitCode )( PTASK_INFO task );
-// returns the name of the executable that is this process (without last . extension   .exe for instance)
-SYSTEM_PROC( CTEXTSTR, GetProgramName )( void );
-// returns the path of the executable that is this process
-SYSTEM_PROC( CTEXTSTR, GetProgramPath )( void );
-// returns the path that was the working directory when the program started
-SYSTEM_PROC( CTEXTSTR, GetStartupPath )( void );
-// returns the path of the current sack library.
-SYSTEM_PROC( CTEXTSTR, GetLibraryPath )( void );
-// on windows, queries an event that indicates the system is rebooting.
-SYSTEM_PROC( LOGICAL, IsSystemShuttingDown )( void );
-// HandlePeerOutput is called whenever a peer task has generated output on stdout or stderr
-//   - someday evolution may require processing stdout and stderr with different event handlers
-SYSTEM_PROC( PTASK_INFO, LaunchPeerProgramEx )( CTEXTSTR program, CTEXTSTR path, PCTEXTSTR args
-                                              , TaskOutput HandlePeerOutput
-                                              , TaskEnd EndNotice
-                                              , uintptr_t psv
-                                               DBG_PASS
-                                              );
-#define LaunchPeerProgram(prog,path,args,out,end,psv) LaunchPeerProgramEx(prog,path,args,out,end,psv DBG_SRC)
-SYSTEM_PROC( PTASK_INFO, SystemEx )( CTEXTSTR command_line
-                                   , TaskOutput OutputHandler
-                                   , uintptr_t psv
-                                   DBG_PASS
-                                   );
-#define System(command_line,output_handler,user_data) SystemEx( command_line, output_handler, user_data DBG_SRC )
-// generate output to a task... read by peer task on standard input pipe
-// if a task has been opened with an output handler, than IO is trapped, and this is a method of
-// sending output to a task.
-SYSTEM_PROC( int, pprintf )( PTASK_INFO task, CTEXTSTR format, ... );
-// if a task has been opened with an otuput handler, than IO is trapped, and this is a method of
-// sending output to a task.
-SYSTEM_PROC( int, vpprintf )( PTASK_INFO task, CTEXTSTR format, va_list args );
-typedef void (CPROC*generic_function)(void);
-SYSTEM_PROC( generic_function, LoadFunctionExx )( CTEXTSTR library, CTEXTSTR function, LOGICAL bPrivate DBG_PASS);
-SYSTEM_PROC( generic_function, LoadFunctionEx )( CTEXTSTR library, CTEXTSTR function DBG_PASS);
-SYSTEM_PROC( void *, GetPrivateModuleHandle )( CTEXTSTR libname );
-/*
-  Add a custom loaded library; attach a name to the DLL space; this should allow
-  getcustomsybmol to resolve these
-  */
-SYSTEM_PROC( void, AddMappedLibrary )( CTEXTSTR libname, POINTER image_memory );
-SYSTEM_PROC( LOGICAL, IsMappedLibrary )( CTEXTSTR libname );
-SYSTEM_PROC( void, DeAttachThreadToLibraries )( LOGICAL attach );
-#define LoadFunction(l,f) LoadFunctionEx(l,f DBG_SRC )
-SYSTEM_PROC( generic_function, LoadPrivateFunctionEx )( CTEXTSTR libname, CTEXTSTR funcname DBG_PASS );
-#define LoadPrivateFunction(l,f) LoadPrivateFunctionEx(l,f DBG_SRC )
-#define OnLibraryLoad(name)	  DefineRegistryMethod("SACK",_OnLibraryLoad,"system/library","load_event",name "_LoadEvent",void,(void), __LINE__)
-// the callback passed will be called during LoadLibrary to allow an external
-// handler to download or extract the library; the resulting library should also
-// be loaded by the callback using the standard 'LoadFunction' methods
-SYSTEM_PROC( void, SetExternalLoadLibrary )( LOGICAL (CPROC*f)(const char *) );
-// please Release or Deallocate the reutrn value
-// the callback should search for the file specified, if required, download or extract it
-// and then return with a Release'able utf-8 char *.
-SYSTEM_PROC( void, SetExternalFindProgram )( char * (CPROC*f)(const char *) );
-// override the default program name.
-// Certain program wrappers might use this to change log location, configuration, etc other defaults.
-SYSTEM_PROC( void, SetProgramName )( CTEXTSTR filename );
-// this is a pointer pointer - being that generic_fucntion is
-// a pointer...
-SYSTEM_PROC( int, UnloadFunctionEx )( generic_function* DBG_PASS );
-#ifdef HAVE_ENVIRONMENT
-SYSTEM_PROC( CTEXTSTR, OSALOT_GetEnvironmentVariable )(CTEXTSTR name);
-SYSTEM_PROC( void, OSALOT_SetEnvironmentVariable )(CTEXTSTR name, CTEXTSTR value);
-SYSTEM_PROC( void, OSALOT_AppendEnvironmentVariable )(CTEXTSTR name, CTEXTSTR value);
-SYSTEM_PROC( void, OSALOT_PrependEnvironmentVariable )(CTEXTSTR name, CTEXTSTR value);
-#endif
-/* this needs to have 'GetCommandLine()' passed to it.
- * Otherwise, the command line needs to have the program name, and arguments passed in the string
- * the parameter to winmain has the program name skipped
- */
-SYSTEM_PROC( void, ParseIntoArgs )( TEXTCHAR const *lpCmdLine, int *pArgc, TEXTCHAR ***pArgv );
-#define UnloadFunction(p) UnloadFunctionEx(p DBG_SRC )
-/*
-   Check if task spawning is allowed...
-*/
-SYSTEM_PROC( LOGICAL, sack_system_allow_spawn )( void );
-/*
-   Disallow task spawning.
-*/
-SYSTEM_PROC( void, sack_system_disallow_spawn )( void );
-SACK_SYSTEM_NAMESPACE_END
-#ifdef __cplusplus
-using namespace sack::system;
-#endif
-#endif
-//----------------------------------------------------------------------
-// $Log: system.h,v $
-// Revision 1.14  2005/07/06 00:33:55  jim
-// Fixes for all sorts of mangilng with the system.h header.
-//
-//
-// Revision 1.2  2003/10/24 14:59:21  panther
-// Added Load/Unload Function for system shared library abstraction
-//
-// Revision 1.1  2003/10/24 13:22:06  panther
-// Initial commit
-//
-//
-#if defined( _MSC_VER )|| defined(__LCC__) || defined( __WATCOMC__ ) || defined( __GNUC__ )
-/* Includes networking as appropriate for the target platform. Providing
-   compatibility definitions as are lacking between platforms...
-   or perhaps appropriate name aliasing to the correct types.            */
-#ifndef INCLUDED_SOCKET_LIBRARY
-#define INCLUDED_SOCKET_LIBRARY
-#if defined( _WIN32 ) || defined( __CYGWIN__ )
-//#ifndef __cplusplus_cli
-#ifdef UNDER_CE
-#define USE_WSA_EVENTS
-#endif
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#if defined( MINGW_SUX ) && ( __GNUC__ < 5 )
-/* Address information */
-typedef struct addrinfoA {
-    int             ai_flags;
-    int             ai_family;
-    int             ai_socktype;
-    int             ai_protocol;
-    size_t          ai_addrlen;
-    char            *ai_canonname;
-    struct sockaddr *ai_addr;
-    struct addrinfoA *ai_next;
-} ADDRINFOA;
-typedef ADDRINFOA   *PADDRINFOA;
-typedef struct addrinfoW {
-    int                 ai_flags;
-    int                 ai_family;
-    int                 ai_socktype;
-    int                 ai_protocol;
-    size_t              ai_addrlen;
-    PWSTR               ai_canonname;
-    struct sockaddr     *ai_addr;
-    struct addrinfoW    *ai_next;
-} ADDRINFOW;
-typedef ADDRINFOW   *PADDRINFOW;
-typedef ADDRINFOA   ADDRINFOT;
-typedef ADDRINFOA   *PADDRINFOT;
-typedef ADDRINFOA   ADDRINFO;
-typedef ADDRINFOA   *LPADDRINFO;
-#endif
-#ifdef __CYGWIN__
-// just need this simple symbol
-typedef int socklen_t;
-#endif
-//#endif
-#elif defined( __LINUX__ )
-#if defined( FBSD )
-#endif
- // INADDR_ANY/NONE
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <netdb.h>
-#if !defined( _PNACL )
-#  include <net/if.h>
-#endif
-#define SOCKET int
-#define SOCKADDR struct sockaddr
-#define SOCKET_ERROR -1
-//#define HWND int // unused params...
-#define WSAEWOULDBLOCK EAGAIN
-#define INVALID_SOCKET -1
-#define WSAAsynchSelect( a,b,c,d ) (0)
-#define WSAGetLastError()  (errno)
-#define closesocket(s) close(s)
-typedef struct hostent *PHOSTENT;
-#ifndef __LINUX__
-#define INADDR_ANY (-1)
-#define INADDR_NONE (0)
-#endif
-struct win_in_addr {
-	union {
-		struct { uint8_t s_b1,s_b2,s_b3,s_b4; } S_un_b;
-		struct { uint16_t s_w1,s_w2; } S_un_w;
-		uint32_t S_addr;
-	} S_un;
-#ifndef __ANDROID__
-#define s_addr  S_un.S_addr
-/* can be used for most tcp & ip code */
-#define s_host  S_un.S_un_b.s_b2
-	/* host on imp */
-#define s_net   S_un.S_un_b.s_b1
-	/* network */
-#define s_imp   S_un.S_un_w.s_w2
-	/* imp */
-#define s_impno S_un.S_un_b.s_b4
-	/* imp # */
-#define s_lh    S_un.S_un_b.s_b3
-	/* logical host */
-#endif
-};
-struct win_sockaddr_in {
-#ifdef __MAC__
-	uint8_t sa_len;
-	uint8_t sin_family;
-#else
-	short   sin_family;
-#endif
-	uint16_t sin_port;
-	struct  win_in_addr sin_addr;
-	char    sin_zero[8];
-};
-typedef struct win_sockaddr_in SOCKADDR_IN;
-#endif
-#endif
-// $Log: loadsock.h,v $
-// Revision 1.7  2005/01/27 08:09:25  panther
-// Linux cleaned.
-//
-// Revision 1.6  2003/06/04 11:38:01  panther
-// Define PACKED
-//
-// Revision 1.5  2003/03/25 08:38:11  panther
-// Add logging
-//
-#  if defined( __MAC__ )
-#  else
-               // _heapmin() included here
-#    include <malloc.h>
-#  endif
-#else
-//#include "loadsock.h"
-#endif
-#ifdef __CYGWIN__
- // provided by -lgcc
-// lots of things end up including 'setjmp.h' which lacks sigset_t defined here.
-// lots of things end up including 'setjmp.h' which lacks sigset_t defined here.
-#  include <sys/signal.h>
-#endif
-// GetTickCount() and Sleep(n) Are typically considered to be defined by including stdhdrs...
-/*
- *  Crafted by Jim Buckeyne
- *
- *  (c)2001-2006++ Freedom Collective
- *
- *  Provide API interface for timers, critical sections
- *  and other thread things.
- *
- */
-#ifndef TIMERS_DEFINED
-/* timers.h mutliple inclusion protection symbol. */
-#define TIMERS_DEFINED
-#if defined( _WIN32 )
-// on windows, we add a function that returns HANDLE
-#endif
-#ifndef SHARED_MEM_DEFINED
-/* Multiple inclusion protection symbol. */
-#define SHARED_MEM_DEFINED
-#if defined (_WIN32)
-//#define USE_NATIVE_CRITICAL_SECTION
-#endif
-#if defined( _SHLWAPI_H ) || defined( _INC_SHLWAPI )
-#undef StrChr
-#undef StrCpy
-#undef StrDup
-#undef StrRChr
-#undef StrStr
-#endif
-#if defined( __MAC__ )
-#  define strdup(s) StrDup(s)
-#  define strdup_free(s) Release(s)
-#else
-#  define strdup_free(s) free(s)
-#endif
-#ifdef __cplusplus
-#define SACK_MEMORY_NAMESPACE SACK_NAMESPACE namespace memory {
-#define SACK_MEMORY_NAMESPACE_END } SACK_NAMESPACE_END
-#else
-#define SACK_MEMORY_NAMESPACE
-#define SACK_MEMORY_NAMESPACE_END
-#endif
-/* A declaration of the call type for memory library routines. */
-#define MEM_API CPROC
-#    ifdef MEM_LIBRARY_SOURCE
-#      define MEM_PROC EXPORT_METHOD
-#    else
-/* Defines library linkage specification. */
-#      define MEM_PROC IMPORT_METHOD
-#    endif
-#ifndef TIMER_NAMESPACE
-#ifdef __cplusplus
-#define _TIMER_NAMESPACE namespace timers {
-/* define a timer library namespace in C++. */
-#define TIMER_NAMESPACE SACK_NAMESPACE namespace timers {
-/* define a timer library namespace in C++ end. */
-#define TIMER_NAMESPACE_END } SACK_NAMESPACE_END
-#else
-#define TIMER_NAMESPACE
-#define TIMER_NAMESPACE_END
-#endif
-#endif
-	TIMER_NAMESPACE
-   // enables file/line monitoring of sections and a lot of debuglogging
-//#define DEBUG_CRITICAL_SECTIONS
-   /* this symbol controls the logging in timers.c... (higher level interface to NoWait primatives)*/
-//#define LOG_DEBUG_CRITICAL_SECTIONS
-/* A custom implementation of windows CRITICAL_SECTION api.
-   Provides same capability for Linux type systems. Can be
-   checked as a study in how to implement safe locks.
-   See Also
-   InitCriticalSec
-   EnterCriticalSec
-   LeaveCriticalSec
-   Example
-   <c>For purposes of this example this is declared in global
-   memory, known to initialize to all 0.</c>
-   <code lang="c++">
-   CRITICALSECTION cs_lock_test;
-   </code>
-   In some bit of code that can be executed by several
-   threads...
-   <code lang="c++">
-   {
-      EnterCriticalSec( &amp;cs_lock_test );
-      // the code in here will only be run by a single thread
-      LeaveCriticalSec( &amp;cs_lock_test );
-   }
-   </code>
-   Remarks
-   The __Ex versions of functions passes source file and line
-   information in debug mode. This can be used if critical
-   section debugging is turned on, or if critical section
-   logging is turned on. (See ... ) This allows applications to
-   find deadlocks by tracking who is entering critical sections
-   and probably failing to leave them.                          */
-struct critical_section_tag {
- // this is set when entering or leaving (updating)...
-	uint32_t dwUpdating;
-  // count of locks entered.  (only low 24 bits may count for 16M entries, upper bits indicate internal statuses.
-	uint32_t dwLocks;
- // windows upper 16 is process ID, lower is thread ID
-	THREAD_ID dwThreadID;
- // ID of thread waiting for this..
-	THREAD_ID dwThreadWaiting;
-#ifdef DEBUG_CRITICAL_SECTIONS
-	// these are not included without a special compile flag
-	// only required by low level deveopers who may be against
-   // undefined behavior.
-#define MAX_SECTION_LOG_QUEUE 16
-	uint32_t bCollisions ;
-	CTEXTSTR pFile[16];
-	uint32_t  nLine[16];
-	uint32_t  nLineCS[16];
- // windows upper 16 is process ID, lower is thread ID
-	THREAD_ID dwThreadPrior[16];
- // windows upper 16 is process ID, lower is thread ID
-	uint8_t isLock[16];
-	int nPrior;
-#endif
-};
-#if !defined( _WIN32 )
-#undef USE_NATIVE_CRITICAL_SECTION
-#endif
-/* <combine sack::timers::critical_section_tag>
-   \ \                                          */
-#if defined( USE_NATIVE_CRITICAL_SECTION )
-#define CRITICALSECTION CRITICAL_SECTION
-#else
-typedef struct critical_section_tag CRITICALSECTION;
-#endif
-/* <combine sack::timers::critical_section_tag>
-   defines a pointer to a CRITICALSECTION type  */
-#if defined( USE_NATIVE_CRITICAL_SECTION )
-#define PCRITICALSECTION LPCRITICAL_SECTION
-#else
-#define InitializeCriticalSection InitializeCriticalSec
-typedef struct critical_section_tag *PCRITICALSECTION;
-#endif
-/* attempts to enter the critical section, and does not block.
-   Returns
-   If it enters the return is 1, else the return is 0.
-   Parameters
-   pcs :    pointer to a critical section
-   prior :  if not NULL, prior will be set to the current thread
-            ID of the owning thread.                             */
-#ifndef USE_NATIVE_CRITICAL_SECTION
-MEM_PROC  int32_t MEM_API  EnterCriticalSecNoWaitEx ( PCRITICALSECTION pcs, THREAD_ID *prior DBG_PASS );
-#define EnterCriticalSecNoWait( pcs,prior ) EnterCriticalSecNoWaitEx( pcs, prior DBG_SRC )
-#else
-#define EnterCriticalSecNoWait( pcs,prior ) TryEnterCriticalSection( (pcs) )
-#endif
-/* <combine sack::timers::EnterCriticalSecNoWaitEx@PCRITICALSECTION@THREAD_ID *prior>
-   \ \                                                                                */
-//#define EnterCriticalSecNoWait( pcs,prior ) EnterCriticalSecNoWaitEx( (pcs),(prior) DBG_SRC )
-/* clears all members of a CRITICALSECTION.  Same as memset( pcs, 0, sizeof( CRITICALSECTION ) ); */
-#ifndef USE_NATIVE_CRITICAL_SECTION
-MEM_PROC  void MEM_API  InitializeCriticalSec ( PCRITICALSECTION pcs );
-#else
-#define InitializeCriticalSec(pcs)  InitializeCriticalSection(pcs)
-#endif
-/* Get a count of how many times a critical section is locked */
-//MEM_PROC  uint32_t MEM_API  CriticalSecOwners ( PCRITICALSECTION pcs );
-/* Namespace of all memory related functions for allocating and
-   releasing memory.                                            */
-#ifdef __cplusplus
- // namespace timers
-}
- // namespace sack
-}
-using namespace sack::timers;
-#endif
-#ifdef __cplusplus
-namespace sack {
-/* Memory namespace contains functions for allocating and
-   releasing memory. Also contains methods for accessing shared
-   memory (if available on the target platform).
-   Allocate
-   Release
-   Hold
-   OpenSpace                                                    */
-namespace memory {
-#endif
-typedef struct memory_block_tag* PMEM;
-// what is an abstract name for the memory mapping handle...
-// where is a filename for the filebacking of the shared memory
-// DigSpace( "Picture Memory", "Picture.mem", 100000 );
-/* <combinewith sack::memory::OpenSpaceExx@CTEXTSTR@CTEXTSTR@uintptr_t@uintptr_t *@uint32_t*>
-   \ \                                                                                 */
-MEM_PROC  POINTER MEM_API  OpenSpace ( CTEXTSTR pWhat, CTEXTSTR pWhere, size_t *dwSize );
-/* <unfinished>
-   Open a shared memory region. The region may be named with a
-   text string (this does not work under linux platforms, and
-   the name of the file to back the shared region is the sharing
-   point). The region may be backed with a file (and must be if
-   it is to be shared on linux.
-   If the region exists by name, the region is opened, and a
-   pointer to that region is returned.
-   If the file exists, the file is opened, and mapped into
-   memory, and a pointer to the file backed memory is returned.
-   if the file does not exist, and the size parameter passed is
-   not 0, then the file is created, and expanded to the size
-   requested. The bCreate flag is set to true.
-   If NULL is passed for pWhat and pWhere, then a block of
-   memory is allocated in system memory, backed by pagefile.
-   if dwSize is 0, then the region is specified for open only,
-   and will not create.
-   Parameters
-   pWhat :     String to a named shared memory region. NULL is
-               unnamed.
-   pWhere :    Filename to back the shared memory with. The file
-               name itself may also be used to share the memory.
-   address :   A base address to map the memory at. If 0,
-               specifies do not care.
-   dwSize :    pointer to a uintptr_t that defines the size to
-               create. If 0, then the region is only opened. The
-               size of the region opened is set back into this
-               value after it is opened.
-   bCreated :  pointer to a boolean to indicate whether the space
-               was created or not.
-   Returns
-   Pointer to region requested to be opened. NULL on failure.
-   Example
-   Many examples of this are appropriate.
-   1) Open or create a file backed shared space.
-   2) Open a file for direct memory access, the file is loaded
-   into memory by system paging routines and not any API.         */
-MEM_PROC  POINTER MEM_API  OpenSpaceExx ( CTEXTSTR pWhat, CTEXTSTR pWhere, uintptr_t address
-	, size_t *dwSize, uint32_t* bCreated );
-/* <combine sack::memory::OpenSpaceExx@CTEXTSTR@CTEXTSTR@uintptr_t@uintptr_t *@uint32_t*>
-   \ \                                                                             */
-#define OpenSpaceEx( what,where,address,psize) OpenSpaceExx( what,where,address,psize,NULL )
-/* Closes a shared memory region. Calls CloseSpaceEx() with
-   bFinal set TRUE.
-   Parameters
-   pMem :  pointer to a memory region opened by OpenSpace.  */
-MEM_PROC  void MEM_API  CloseSpace ( POINTER pMem );
-/* Closes a memory region. Release can also be used to close
-   opened spaces.
-   Parameters
-   pMem :    pointer to a memory region opened with OpenSpace()
-   bFinal :  If final is set, the file used for backing the shared
-             region is deleted.                                    */
-MEM_PROC  void MEM_API  CloseSpaceEx ( POINTER pMem, int bFinal );
-/* This can give the size back of a memory space.
-   Returns
-   The size of the memory block.
-   Parameters
-   pMem :  pointer to a block of memory that was opened with
-           OpenSpace().                                      */
-MEM_PROC  uintptr_t MEM_API  GetSpaceSize ( POINTER pMem );
-/* even if pMem is just a POINTER returned from OpenSpace this
-   will create a valid heap pointer.
-   will result TRUE if a valid heap is present will result FALSE
-   if heap is not able to init (has content)
-   Parameters
-   pMem :    pointer to a memory space to setup as a heap.
-   dwSize :  size of the memory space pointed at by pMem.        */
-MEM_PROC  int MEM_API  InitHeap( PMEM pMem, size_t dwSize );
-/* Dumps all blocks into the log.
-   Parameters
-   pHeap :     Heap to dump. If NULL or unspecified, dump the
-               default heap.
-   bVerbose :  Specify to dump each block's information,
-               otherwise only summary information is generated. */
-MEM_PROC  void MEM_API  DebugDumpHeapMemEx ( PMEM pHeap, LOGICAL bVerbose );
-/* <combine sack::memory::DebugDumpHeapMemEx@PMEM@LOGICAL>
-   Logs all of the blocks tracked in a specific heap.
-   Parameters
-   Heap :  Heap to dump the memory blocks of.              */
-#define DebugDumpHeapMem(h)     DebugDumpMemEx( (h), TRUE )
-/* <combine sack::memory::DebugDumpHeapMemEx@PMEM@LOGICAL>
-   \ \                                                     */
-MEM_PROC  void MEM_API  DebugDumpMemEx ( LOGICAL bVerbose );
-/* Dumps all tracked heaps.
-   Parameters
-   None.                    */
-#define DebugDumpMem()     DebugDumpMemEx( TRUE )
-/* Dumps a heap to a specific file.
-   Parameters
-   pHeap :      Heap. If NULL or unspecified, dumps default heap.
-   pFilename :  name of the file to write output to.              */
-MEM_PROC  void MEM_API  DebugDumpHeapMemFile ( PMEM pHeap, CTEXTSTR pFilename );
-/* <combine sack::memory::DebugDumpHeapMemFile@PMEM@CTEXTSTR>
-   \ \                                                        */
-MEM_PROC  void MEM_API  DebugDumpMemFile ( CTEXTSTR pFilename );
-#ifdef __GNUC__
-MEM_PROC  POINTER MEM_API  HeapAllocateAlignedEx ( PMEM pHeap, size_t dwSize, uint16_t alignment DBG_PASS ) __attribute__( (malloc) );
-MEM_PROC  POINTER MEM_API  HeapAllocateEx ( PMEM pHeap, uintptr_t nSize DBG_PASS ) __attribute__((malloc));
-MEM_PROC  POINTER MEM_API  AllocateEx ( uintptr_t nSize DBG_PASS ) __attribute__((malloc));
-#else
-/* \ \
-   Parameters
-   pHeap :  pointer to a heap which was initialized with
-            InitHeap()
-   Size :   Size of block to allocate                    */
-MEM_PROC  POINTER MEM_API  HeapAllocateEx ( PMEM pHeap, uintptr_t nSize DBG_PASS );
-/* \ Parameters
-pHeap :  pointer to a heap which was initialized with
-InitHeap()
-Size :   Size of block to allocate
-Alignment : count of bytes to return block on (1,2,4,8,16,32)  */
-MEM_PROC  POINTER MEM_API  HeapAllocateAlignedEx( PMEM pHeap, uintptr_t nSize, uint16_t alignment DBG_PASS );
-/* Allocates a block of memory of specific size. Debugging
-   information if passed is recorded on the block.
-   Parameters
-   size :  size of the memory block to create              */
-MEM_PROC  POINTER MEM_API  AllocateEx ( uintptr_t nSize DBG_PASS );
-#endif
-/* A simple macro to allocate a new single unit of a structure. Adds
-   a typecast automatically to be (type*) so C++ compilation is
-   clean. Does not burden the user with extra typecasts. This,
-   being in definition use means that all other things that are
-   typecast are potentially error prone. Memory is considered
-   uninitialized.
-   Parameters
-   type :  type to allocate
-   Example
-   <code lang="c++">
-   int *p_int = New( int );
-   </code>                                                           */
-#define New(type) ((type*)HeapAllocate(0,sizeof(type)))
-/* Reallocates an array of type.
-   Parameters
-   type :  type to use for sizeof(type) * sz for resulting size.
-   p :     pointer to realloc
-   sz :    count of elements in the array                        */
-#define Renew(type,p,sz) ((type*)HeapReallocate(0,p, sizeof(type)*sz))
-/* an advantage of C, can define extra space at end of structure
-   which is allowed to carry extra data, which is unknown by
-   other code room for exploits rock.
-   Parameters
-   type :   passed to sizeof()
-   extra :  Number of additional bytes to allocate beyond the
-            sizeof( type )
-   Example
-   Create a text segment plus 18 characters of data. (This
-   should not be done, use SegCreate instead)
-   <code lang="c#">
-   PTEXT text = NewPlus( TEXT, 18 );
-   </code>                                                       */
-#define NewPlus(type,extra) ((type*)HeapAllocate(0,sizeof(type)+(extra)))
-/* Allocate a new array of type.
-   Parameters
-   type :   type to determine size of array element to allocate.
-   count :  count of elements to allocate in the array.
-   Returns
-   A pointer to type. (this is important, since in C++ it's cast
-   correctly to the destination type).                           */
-#define NewArray(type,count) ((type*)HeapAllocate(0,(uintptr_t)(sizeof(type)*(count))))
-/* Allocate sizeof(type). Will invoke some sort of registered
-   initializer
-   Parameters
-   type :  type to allocate for. Passes the name of the type so
-           the allocator can do a registered procedure lookup and
-           invok an initializer for the type.                     */
-//#define NewObject(type) ((type*)FancyAllocate(sizeof(type),#type DBG_SRC))
-#ifdef __cplusplus
-/* A 'safe' release macro. casts the block to the type to
-   release. Makes sure the pointer being released is the type
-   specified.
-   Parameters
-   type :   type of the variable
-   thing :  the thing to actually release.                    */
-#  ifdef _DEBUG
-#    define Deallocate(type,thing) for(type _zzqz_tmp=thing;ReleaseEx((POINTER)(_zzqz_tmp)DBG_SRC),0;)
-#  else
-#    define Deallocate(type,thing) ReleaseEx((POINTER)(thing)DBG_SRC)
-#  endif
-#else
-#  define Deallocate(type,thing) (ReleaseEx((POINTER)(thing)DBG_SRC))
-#endif
-/* <combine sack::memory::HeapAllocateEx@PMEM@uintptr_t nSize>
-   \ \                                                        */
-#define HeapAllocate(heap, n) HeapAllocateEx( (heap), (n) DBG_SRC )
-   /* <combine sack::memory::HeapAllocateAlignedEx@PMEM@uintptr_t@uint32_t>
-   \ \                                                        */
-#define HeapAllocateAligned(heap, n, m) HeapAllocateAlignedEx( (heap), (n), m DBG_SRC )
-   /* <combine sack::memory::AllocateEx@uintptr_t nSize>
-   \ \                                               */
-#ifdef FIX_RELEASE_COM_COLLISION
-#else
-#define Allocate( n ) HeapAllocateEx( (PMEM)0, (n) DBG_SRC )
-#endif
-//MEM_PROC  POINTER MEM_API  AllocateEx ( uintptr_t nSize DBG_PASS );
-//#define Allocate(n) AllocateEx(n DBG_SRC )
-MEM_PROC  POINTER MEM_API  GetFirstUsedBlock ( PMEM pHeap );
-/* Releases an allocated block. Memory becomes free to allocate
-   again. If debugging information is passed, the releasing
-   source and line is recorded in the block. (can be used to
-   find code deallocating memory it shouldn't).
-   This also works with Hold(), and decrements the hold counter.
-   If there are no more holds on the block, then the block is
-   released.
-   Parameters
-   p :  pointer to allocated block to release.                   */
-MEM_PROC  POINTER MEM_API  ReleaseEx ( POINTER pData DBG_PASS ) ;
-/* <combine sack::memory::ReleaseEx@POINTER pData>
-   \ \                                             */
-#ifdef FIX_RELEASE_COM_COLLISION
-#else
-/* <combine sack::memory::ReleaseEx@POINTER pData>
-   \ \                                             */
-#define Release(p) ReleaseEx( (p) DBG_SRC )
-#endif
-/* Adds a usage count to a block of memory. For each count
-   added, an additional release must be used. This can be used
-   to keep a copy of the block, even if some other code
-   automatically releases it.
-   Parameters
-   pointer :  pointer to a block of memory that was Allocate()'d.
-   Example
-   Allocate a block of memory, and release it properly. But we
-   passed it to some function. That function wanted to keep a
-   copy of the block, so it can apply a hold. It needs to later
-   do a Release again to actually free the memory.
-   <code lang="c++">
-   POINTER p = Allocate( 32 );
-   call_some_function( p );
-   Release( p );
-   void call_some_function( POINTER p )
-   {
-      static POINTER my_p_copy;
-      my_p_copy = p;
-      Hold( p );
-   }
-   </code>                                                        */
-MEM_PROC  POINTER MEM_API  HoldEx ( POINTER pData DBG_PASS  );
-/* <combine sack::memory::HoldEx@POINTER pData>
-   \ \                                          */
-#define Hold(p) HoldEx(p DBG_SRC )
-/* This can be used to add additional space after the end of a
-   memory block.
-   Parameters
-   pHeap :   If NULL or not specified, uses the common memory heap.
-   source :  pointer to the block to pre\-allocate. If NULL, a new
-             memory block will be allocated that is filled with 0.
-   size :    the new size of the block.
-   Returns
-   A pointer to a new block of memory that is the new size.
-   Remarks
-   If the size specified for the new block is larger than the
-   previous size of the block, the curernt data is copied to the
-   beginning of the new block, and the memory after the existing
-   content is cleared to 0.
-   If the size specified for the new block is smaller than the
-   previous size, the end of the original block is not copied to
-   the new block.
-   If NULL is passed as the source block, then a new block
-   filled with 0 is created.                                        */
-MEM_PROC  POINTER MEM_API  HeapReallocateAlignedEx ( PMEM pHeap, POINTER source, uintptr_t size, uint16_t alignment DBG_PASS );
-MEM_PROC  POINTER MEM_API  HeapReallocateEx ( PMEM pHeap, POINTER source, uintptr_t size DBG_PASS );
-/* <combine sack::memory::HeapReallocateEx@PMEM@POINTER@uintptr_t size>
-   \ \                                                                 */
-#define HeapReallocateAligned(heap,p,sz,al) HeapReallocateEx( (heap),(p),(sz),(al) DBG_SRC )
-#define HeapReallocate(heap,p,sz) HeapReallocateEx( (heap),(p),(sz) DBG_SRC )
-/* <combine sack::memory::HeapReallocateEx@PMEM@POINTER@uintptr_t size>
-   \ \                                                                 */
-MEM_PROC  POINTER MEM_API  ReallocateEx ( POINTER source, uintptr_t size DBG_PASS );
-/* <combine sack::memory::ReallocateEx@POINTER@uintptr_t size>
-   \ \                                                        */
-#ifdef FIX_RELEASE_COM_COLLISION
-#else
-#define Reallocate(p,sz) ReallocateEx( (p),(sz) DBG_SRC )
-#endif
-/* This can be used to add additional space before the beginning
-   of a memory block.
-   Parameters
-   pHeap :   If NULL or not specified, uses the common memory heap.
-   source :  pointer to the block to pre\-allocate. If NULL, a new
-             memory block will be allocated that is filled with 0.
-   size :    the new size of the block.
-   Returns
-   A pointer to a new block of memory that is the new size.
-   Remarks
-   If the size specified for the new block is larger than the
-   previous size of the block, the content data is copied to the
-   end of the new block, and the memory leading up to the block
-   is cleared to 0.
-   If the size specified for the new block is smaller than the
-   previous size, the end of the original block is not copied to
-   the new block.
-   If NULL is passed as the source block, then a new block
-   filled with 0 is created.                                        */
-MEM_PROC  POINTER MEM_API  HeapPreallocateEx ( PMEM pHeap, POINTER source, uintptr_t size DBG_PASS );
-/* <combine sack::memory::HeapPreallocateEx@PMEM@POINTER@uintptr_t size>
-   \ \                                                                  */
-#define HeapPreallocate(heap,p,sz) HeapPreallocateEx( (heap),(p),(sz) DBG_SRC )
-/* <combine sack::memory::HeapPreallocateEx@PMEM@POINTER@uintptr_t size>
-   \ \                                                                  */
-MEM_PROC  POINTER MEM_API  PreallocateAlignedEx ( POINTER source, uintptr_t size, uint16_t alignment DBG_PASS );
-MEM_PROC  POINTER MEM_API  PreallocateEx ( POINTER source, uintptr_t size DBG_PASS );
-/* <combine sack::memory::PreallocateEx@POINTER@uintptr_t size>
-   \ \                                                         */
-#define PreallocateAligned(p,sz,al) PreallocateAlignedEx( (p),(sz),(al) DBG_SRC )
-#define Preallocate(p,sz) PreallocateEx( (p),(sz) DBG_SRC )
-/* Moves a block of memory from one heap to another.
-   Parameters
-   pNewHeap :  heap target to move the block to.
-   source :    source block to move \- pointer to the data in the
-               block.
-   Remarks
-   Since each block remembers its own size, it is possible to
-   move a block from one heap to another. A heap might be a
-   memory mapped file at a specific address for instance.         */
-MEM_PROC  POINTER MEM_API  HeapMoveEx ( PMEM pNewHeap, POINTER source DBG_PASS );
-/* <combine sack::memory::HeapMoveEx@PMEM@POINTER source>
-   \ \                                                    */
-#define HeapMove(h,s) HeapMoveEx( (h), (s) DBG_SRC )
-/* \returns the size of a memory block which was Allocate()'d.
-   Parameters
-   pData :  pointer to a allocated memory block.
-   Returns
-   The size of the block that was specified by the Allocate(). */
-MEM_PROC uintptr_t MEM_API  SizeOfMemBlock ( CPOINTER pData );
-/* \returns the allocation alignment of a memory block which was Allocate()'d.
-Parameters
-pData :  pointer to a allocated memory block.
-Returns
-The alignment of the block that was specified from Allocate(). */
-MEM_PROC uint16_t  AlignOfMemBlock( CPOINTER pData );
-/* not so much of a fragment as a consolidation. Finds a free
-   spot earlier in the heap and attempts to move the block
-   there. This can help alleviate heap fragmentation.
-   Parameters
-   ppMemory :  pointer to a pointer to memory which might move */
-MEM_PROC  LOGICAL MEM_API  Defragment ( POINTER *ppMemory );
-/* \ \
-   Parameters
-   pHeap :        pointer to a heap
-   pFree :        pointer to a 32 bit value to receive the size
-                  of free space
-   pUsed :        pointer to a 32 bit value to receive the size
-                  of used space
-   pChunks :      pointer to a 32 bit value to receive the total
-                  count of chunks.
-   pFreeChunks :  pointer to a 32 bit value to receive the total
-                  count of free chunks.
-   Remarks
-   It looks like DBG_PASS parameter isn't used... not sure why
-   it would here, there is no allocate or delete.
-   The count of allocated chunks can be gotten by subtracting
-   FreeChunks from Chunks.
-   Example
-   <code lang="c++">
-   uint32_t free;
-   uint32_t used;
-   uint32_t chunks;
-   uint32_t free_chunks;
-   GetHeapMemStatsEx( NULL, &amp;free, &amp;used, &amp;chunks, &amp;free_chunks );
-   </code>                                                                         */
-MEM_PROC  void MEM_API  GetHeapMemStatsEx ( PMEM pHeap, uint32_t *pFree, uint32_t *pUsed, uint32_t *pChunks, uint32_t *pFreeChunks DBG_PASS );
-/* <combine sack::memory::GetHeapMemStatsEx@PMEM@uint32_t *@uint32_t *@uint32_t *@uint32_t *pFreeChunks>
-   \ \                                                                               */
-#define GetHeapMemStats(h,f,u,c,fc) GetHeapMemStatsEx( h,f,u,c,fc DBG_SRC )
-//MEM_PROC  void MEM_API  GetHeapMemStats ( PMEM pHeap, uint32_t *pFree, uint32_t *pUsed, uint32_t *pChunks, uint32_t *pFreeChunks );
-MEM_PROC  void MEM_API  GetMemStats ( uint32_t *pFree, uint32_t *pUsed, uint32_t *pChunks, uint32_t *pFreeChunks );
-/* Sets whether to log allocations or not.
-   \returns the prior state of logging...
-   Parameters
-   bTrueFalse :  if TRUE, allocation logging is turned on. Enables
-                 logging when each block is Allocated, Released,
-                 or Held.                                          */
-MEM_PROC  int MEM_API  SetAllocateLogging ( LOGICAL bTrueFalse );
-/* disables storing file/line, also disables auto GetMemStats
-   checking
-   Parameters
-   bDisable :  set to TRUE to disable allocate debug logging. */
-MEM_PROC  int MEM_API  SetAllocateDebug ( LOGICAL bDisable );
-/* disables auto GemMemStats on every allocate/release/Hold
-   GetMemStats will evaluate each and every block allocated in
-   memory and inspect it for corruption.
-   Parameters
-   bDisable :  set to TRUE to disable auto mem check.          */
-MEM_PROC  int MEM_API  SetManualAllocateCheck ( LOGICAL bDisable );
-/* Sets whether to log critical sections or not.
-   \returns the prior state of logging...
-   Parameters
-   bTrueFalse :  if TRUE, critical section logging is turned on. Logs
-                 when each thread enters or leaves a
-                 CRITICIALSECTION.                                    */
-MEM_PROC  int MEM_API  SetCriticalLogging ( LOGICAL bTrueFalse );
-/* Sets the minimum size to allocate. If a block size less than
-   this is allocated, then this much is actually allocated.
-   Parameters
-   nSize :  Specify the minimum allocation size                 */
-MEM_PROC  void MEM_API  SetMinAllocate ( size_t nSize );
-/* Sets how much a heap is expanded by when it is out of space. Default
-   is like 512k.
-   Parameters
-   dwSize :  the new size to expand heaps by.
-   Remarks
-   Probably internally, this is rounded up to the next 4k
-   boundary.                                                            */
-MEM_PROC  void MEM_API  SetHeapUnit ( size_t dwSize );
-/* Multi-processor safe exchange operation. Returns the prior
-   value at the pointer.
-   Parameters
-   p :    pointer to a volatile 64 bit value.
-   val :  a new 64 bit value to put at (*p)
-   Example
-   <code lang="c#">
-   uint64_t value = 13;
-   uint64_t oldvalue = LockedExchange64( &amp;value, 15 );
-   // old value will be 13
-   // value will be 15
-   </code>                                                    */
-MEM_PROC  uint64_t MEM_API  LockedExchange64 ( volatile uint64_t* p, uint64_t val );
-/* A multi-processor safe increment of a variable.
-   Parameters
-   p :  pointer to a 32 bit value to increment.    */
-MEM_PROC  uint32_t MEM_API  LockedIncrement ( volatile uint32_t* p );
-/* Does a multi-processor safe decrement on a variable.
-   Parameters
-   p :  pointer to a 32 bit value to decrement.         */
-MEM_PROC  uint32_t MEM_API  LockedDecrement ( volatile uint32_t* p );
-#ifdef __cplusplus
-// like also __if_assembly__
-//extern "C" {
-#endif
-#ifdef __64__
-#define LockedExchangePtrSzVal(a,b) LockedExchange64((volatile uint64_t*)(a),b)
-#else
-#define LockedExchangePtrSzVal(a,b) LockedExchange((volatile uint32_t*)(a),b)
-#endif
-/* Multiprocessor safe swap of the contents of a variable with a
-   new value, and result with the old variable.
-   Parameters
-   p :    pointer to a 32 bit value to exchange
-   val :  value to set into the variable
-   Returns
-   The prior value in p.
-   Example
-   <code>
-   uint32_t variable = 0;
-   uint32_t oldvalue = LockedExchange( &amp;variable, 1 );
-   </code>                                                       */
-MEM_PROC  uint32_t MEM_API  LockedExchange ( volatile uint32_t* p, uint32_t val );
-/* Sets a 32 bit value into memory. If the length to set is not
-   a whole number of 32 bit words, the last bytes may contain
-   the low 16 bits of the value and the low 8 bits.
-   Parameters
-   p :   pointer to memory to set
-   n :   32 bit value to set memory with
-   sz :  length to set
-   Remarks
-   Writes as many 32 it values as will fit in sz.
-   If (sz &amp; 2), the low 16 bits of n are written at the end.
-   then if ( sz &amp; 1 ) the low 8 bits of n are written at the
-   end.                                                          */
-MEM_PROC  void MEM_API  MemSet ( POINTER p, uintptr_t n, size_t sz );
-//#define _memset_ MemSet
-/* memory copy operation. not safe when buffers overlap. Performs
-   platform-native memory stream operation to copy from one
-   place in memory to another. (32 or 64 bit operations as
-   possible).
-   Parameters
-   pTo :    Memory to copy to
-   pFrom :  memory to copy from
-   sz :     size of block of memory to copy                       */
-MEM_PROC  void MEM_API  MemCpy ( POINTER pTo, CPOINTER pFrom, size_t sz );
-//#define _memcpy_ MemCpy
-/* Binary byte comparison of one block of memory to another. Results
-   \-1 if less, 1 if more and 0 if equal.
-   Parameters
-   pOne :  pointer to memory one
-   pTwo :  pointer to some other memory
-   sz :    count of bytes to compare
-   Returns
-   0 if equal
-   \-1 if the first different byte in pOne is less than pTwo.
-   1 if the first different byte in pOne is more than pTwo.          */
-MEM_PROC  int MEM_API  MemCmp ( CPOINTER pOne, CPOINTER pTwo, size_t sz );
-	/* nothing.
-   does nothing, returns nothing. */
-//#define memnop(mem,sz,comment)
-/* Compares two strings. Must match exactly.
-   Parameters
-   s1 :  string to compare
-   s2 :  string to compare
-   Returns
-   0 if equal.
-   1 if (s1 \>s2)
-   \-1 if (s1 \< s2)
-   if s1 is NULL and s2 is not NULL, return is -1.
-   if s2 is NULL and s1 is not NULL, return is 1.
-	if s1 and s2 are NULL return is 0.              */
-#ifdef StrCmp
-#undef StrCmp
- // StrCmp
-#endif
-MEM_PROC  int MEM_API  StrCmp ( CTEXTSTR pOne, CTEXTSTR pTwo );
-/* Compares two strings, case insensitively.
-   Parameters
-   s1 :  string to compare
-   s2 :  string to compare
-   Returns
-   0 if equal.
-   1 if (s1 \>s2)
-   \-1 if (s1 \< s2)
-   if s1 is NULL and s2 is not NULL, return is -1.
-   if s2 is NULL and s1 is not NULL, return is 1.
-   if s1 and s2 are NULL return is 0.              */
-MEM_PROC  int MEM_API  StrCaseCmp ( CTEXTSTR s1, CTEXTSTR s2 );
-/* String insensitive case comparison with maximum length
-   specified.
-   Parameters
-   s1 :      string to compare
-   s2 :      string to compare
-   maxlen :  maximum character required to match
-   Returns
-   0 if equal up to the number of characters.
-   1 if (s1 \>s2)
-   \-1 if (s1 \< s2)
-   if s1 is NULL and s2 is not NULL, return is -1.
-   if s2 is NULL and s1 is not NULL, return is 1.
-   if s1 and s2 are NULL return is 0.                     */
-MEM_PROC  int MEM_API  StrCaseCmpEx ( CTEXTSTR s1, CTEXTSTR s2, size_t maxlen );
-/* This searches a string for the first character that matches
-   some specified character.
-   A custom strchr function, since microsoft is saying this is
-   an unsafe function. This Compiles to compare native strings,
-   if UNICODE uses unicode, otherwise uses 8 bit characters.
-   Parameters
-   s1 :  String to search
-   c :   Character to find
-   Returns
-   pointer in string to search that is the first character that
-   matches. NULL if no character matches.
-   Note
-   This flavor is the only one on C where operator overloading
-   cannot switch between CTEXTSTR and TEXTSTR parameters, to
-   \result with the correct type. If a CTEXTSTR is passed to
-   this it should result with a CTEXTSTR, but if that's the only
-   choice, then the result of this is never modifiable, even if
-	it is a pointer to a non-const TEXTSTR.                       */
-MEM_PROC  CTEXTSTR MEM_API  StrChr ( CTEXTSTR s1, TEXTCHAR c );
-/* copy S2 to S1, with a maximum of N characters.
-   The last byte of S1 will always be a 'nul'. If S2 was longer
-   than S1, then it will be truncated to fit within S1. Perferred
-   method over this is SaveText or StrDup.
-   Parameters
-   s1 :      desitnation TEXTCHAR buffer
-   s2 :      source string
-   length :  the maximum number of characters that S1 can hold. (this
-             is not a size, but is a character count)                 */
-MEM_PROC  TEXTSTR MEM_API  StrCpyEx ( TEXTSTR s1, CTEXTSTR s2, size_t n );
-/* copy S2 to S1. This is 'unsafe', since neither paramter's
-   size is known. Prefer StrCpyEx which passes the maximum
-   length for S1.
-   Parameters
-   s1 :  desitnation TEXTCHAR buffer
-   s2 :  source string                                       */
-MEM_PROC  TEXTSTR MEM_API  StrCpy ( TEXTSTR s1, CTEXTSTR s2 );
-/* \Returns the count of characters in a string.
-   Parameters
-   s :  string to measure
-   Returns
-   length of string.                             */
-MEM_PROC  size_t MEM_API  StrLen ( CTEXTSTR s );
-/* Get the length of a string in C chars.
-   Parameters
-   s :  char * to count.
-   Returns
-   the length of s. If s is NULL, return 0. */
-MEM_PROC  size_t MEM_API  CStrLen ( char const*s );
-/* Finds the last instance of a character in a string.
-   Parameters
-   s1 :  String to search in
-   c :   character to find
-   Returns
-   NULL if character is not in the string.
-   a pointer to the last character in s1 that matches c. */
-MEM_PROC  CTEXTSTR MEM_API  StrRChr ( CTEXTSTR s1, TEXTCHAR c );
-#ifdef __cplusplus
-/* This searches a string for the first character that matches
-   some specified character.
-   A custom strchr function, since microsoft is saying this is
-   an unsafe function. This Compiles to compare native strings,
-   if UNICODE uses unicode, otherwise uses 8 bit characters.
-   Parameters
-   s1 :  String to search
-   c :   Character to find
-   Returns
-   pointer in string to search that is the first character that
-   matches. NULL if no character matches.
-   Note
-   This second flavor is only available on C++ where operator
-   overloading will switch between CTEXTSTR and TEXTSTR
-   \parameters, to result with the correct type. If a CTEXTSTR
-   is passed to this it should result with a CTEXTSTR, but if
-   that's the only choice, then the result of this is never
-   modifiable, even if it is a pointer to a non-const TEXTSTR.  */
-MEM_PROC  TEXTSTR MEM_API  StrChr ( TEXTSTR s1, TEXTCHAR c );
-/* This searches a string for the last character that matches
-   some specified character.
-   A custom strrchr function, since microsoft is saying this is
-   an unsafe function. This Compiles to compare native strings,
-   if UNICODE uses unicode, otherwise uses 8 bit characters.
-   Parameters
-   s1 :  String to search
-   c :   Character to find
-   Returns
-   pointer in string to search that is the first character that
-   matches. NULL if no character matches.
-   Note
-   This second flavor is only available on C++ where operator
-   overloading will switch between CTEXTSTR and TEXTSTR
-   \parameters, to result with the correct type. If a CTEXTSTR
-   is passed to this it should result with a CTEXTSTR, but if
-   that's the only choice, then the result of this is never
-   modifiable, even if it is a pointer to a non-const TEXTSTR.  */
-MEM_PROC  TEXTSTR MEM_API  StrRChr ( TEXTSTR s1, TEXTCHAR c );
-/* <combine sack::memory::StrCmp@CTEXTSTR@CTEXTSTR>
-   \ \                                              */
-MEM_PROC  int MEM_API  StrCmp ( const char * s1, CTEXTSTR s2 );
-#endif
-/* <combine sack::memory::StrCmp@char *@CTEXTSTR>
-   \ \                                            */
-MEM_PROC  int MEM_API  StrCmpEx ( CTEXTSTR s1, CTEXTSTR s2, INDEX maxlen );
-/* Finds an instance of a string in another string.
-   Custom implementation because strstr is declared unsafe, and
-   to handle switching between unicode and char.
-   Parameters
-   s1 :  the string to search in
-   s2 :  the string to locate
-   Returns
-   NULL if s2 is not in s1.
-   The beginning of the string in s1 that matches s2.
-   Example
-   <code lang="c++">
-   TEXTCHAR const *found = StrStr( "look in this string", "in" );
-                                               ^returns a pointer to here.
-   </code>                                                                        */
-MEM_PROC  CTEXTSTR MEM_API  StrStr ( CTEXTSTR s1, CTEXTSTR s2 );
-#ifdef __cplusplus
-/* Finds an instance of a string in another string.
-   Custom implementation because strstr is declared unsafe, and
-   to handle switching between unicode and char.
-   Parameters
-   s1 :  the string to search in
-   s2 :  the string to locate
-   Returns
-   NULL if s2 is not in s1.
-   The beginning of the string in s1 that matches s2.
-   Example
-   <code>
-   TEXTCHAR *writable_string = StrDup( "look in this string" );
-   TEXTCHAR *found = StrStr( writable_string, "in" );
-   // returns a pointer to 'in' in the writable string, which can then be modified.
-   </code>                                                                          */
-MEM_PROC  TEXTSTR MEM_API  StrStr ( TEXTSTR s1, CTEXTSTR s2 );
-#endif
-/* Searches for one string in another. Compares case
-   insensitively.
-   Parameters
-   s1 :  string to search in
-   s2 :  string to locate
-   See Also
-   <link sack::memory::StrStr@CTEXTSTR@CTEXTSTR, StrStr> */
-MEM_PROC  CTEXTSTR MEM_API  StrCaseStr ( CTEXTSTR s1, CTEXTSTR s2 );
-/* This duplicates a block of memory.
-   Parameters
-   p :  pointer to a block of memory that was allocated.
-   Returns
-   a pointer to a new block of memory that has the same content
-   as the original.                                             */
-MEM_PROC  POINTER MEM_API  MemDupEx ( CPOINTER thing DBG_PASS );
-/* <combine sack::memory::MemDupEx@CPOINTER thing>
-   \ \                                             */
-#define MemDup(thing) MemDupEx(thing DBG_SRC )
-/* Duplicates a string, and returns a pointer to the copy.
-   Parameters
-   original :  string to duplicate                         */
-MEM_PROC  TEXTSTR MEM_API  StrDupEx ( CTEXTSTR original DBG_PASS );
-/* Translates from a TEXTCHAR string to a char string. Probably
-   only for UNICODE to non wide translation points.
-   Parameters
-   original :  string to duplicate                              */
-MEM_PROC  char *  MEM_API  CStrDupEx ( CTEXTSTR original DBG_PASS );
-/* Translates from a TEXTCHAR string to a wchar_t string. Probably
-   only for UNICODE to non wide translation points.
-   Parameters
-   original :  string to duplicate                              */
-MEM_PROC  wchar_t *  MEM_API  DupTextToWideEx( CTEXTSTR original DBG_PASS );
-#define DupTextToWide(s) DupTextToWideEx( s DBG_SRC )
-/* Translates from a TEXTCHAR string to a wchar_t string. Probably
-   only for UNICODE to non wide translation points.
-   Parameters
-   original :  string to duplicate                              */
-MEM_PROC  char *     MEM_API  DupTextToCharEx( CTEXTSTR original DBG_PASS );
-#define DupTextToChar(s) DupTextToCharEx( s DBG_SRC )
-/* Translates from a TEXTCHAR string to a wchar_t string. Probably
-   only for UNICODE to non wide translation points.
-   Parameters
-   original :  string to duplicate                              */
-MEM_PROC TEXTSTR     MEM_API  DupWideToTextEx( const wchar_t *original DBG_PASS );
-#define DupWideToText(s) DupWideToTextEx( s DBG_SRC )
-/* Translates from a TEXTCHAR string to a wchar_t string. Probably
-   only for UNICODE to non wide translation points.
-   Parameters
-   original :  string to duplicate                              */
-MEM_PROC TEXTSTR     MEM_API  DupCharToTextEx( const char *original DBG_PASS );
-#define DupCharToText(s) DupCharToTextEx( s DBG_SRC )
-/* Converts from 8 bit char to 16 bit wchar (or no-op if not
-   UNICODE compiled)
-   Parameters
-   original :  original string of C char.
-   Returns
-   a pointer to a wide character string.                     */
-MEM_PROC  TEXTSTR MEM_API  DupCStrEx ( const char * original DBG_PASS );
-/* Converts from 8 bit char to 16 bit wchar (or no-op if not
-UNICODE compiled)
-Parameters
-original :  original string of C char.
-Returns
-a pointer to a wide character string.                     */
-MEM_PROC  TEXTSTR MEM_API  DupCStrLenEx( const char * original, size_t chars DBG_PASS );
-/* <combine sack::memory::StrDupEx@CTEXTSTR original>
-   \ \                                                */
-#define StrDup(o) StrDupEx( (o) DBG_SRC )
-/* <combine sack::memory::CStrDupEx@CTEXTSTR original>
-   \ \                                                 */
-#define CStrDup(o) CStrDupEx( (o) DBG_SRC )
-/* <combine sack::memory::DupCStrEx@char * original>
-   \ \                                               */
-#define DupCStr(o) DupCStrEx( (o) DBG_SRC )
-/* <combine sack::memory::DupCStrLenEx@char * original@size_t chars>
-   \ \                                               */
-#define DupCStrLen(o,l) DupCStrLenEx( (o),(l) DBG_SRC )
-//------------------------------------------------------------------------
-#if 0
-// this code was going to provide network oriented shared memory.
-#ifndef TRANSPORT_STRUCTURE_DEFINED
-typedef uintptr_t PTRANSPORT_QUEUE;
-struct transport_queue_tag { uint8_t private_data_here; };
-#endif
-MEM_PROC  struct transport_queue_tag * MEM_API  CreateQueue ( int size );
-MEM_PROC  int MEM_API  EnqueMessage ( struct transport_queue_tag *queue, POINTER msg, int size );
-MEM_PROC  int MEM_API  DequeMessage ( struct transport_queue_tag *queue, POINTER msg, int *size );
-MEM_PROC  int MEM_API  PequeMessage ( struct transport_queue_tag *queue, POINTER *msg, int *size );
-#endif
-//------------------------------------------------------------------------
-#ifdef __cplusplus
- // namespace memory
-}
- // namespace sack
-}
-using namespace sack::memory;
-#if defined( _DEBUG ) || defined( _DEBUG_INFO )
-/*
-inline void operator delete( void * p )
-{ Release( p ); }
-#ifdef DELETE_HANDLES_OPTIONAL_ARGS
-inline void operator delete (void * p DBG_PASS )
-{ ReleaseEx( p DBG_RELAY ); }
-#define delete delete( DBG_VOIDSRC )
-#endif
-//#define deleteEx(file,line) delete(file,line)
-#ifdef USE_SACK_ALLOCER
-inline void * operator new( size_t size DBG_PASS )
-{ return AllocateEx( (uintptr_t)size DBG_RELAY ); }
-static void * operator new[]( size_t size DBG_PASS )
-{ return AllocateEx( (uintptr_t)size DBG_RELAY ); }
-#define new new( DBG_VOIDSRC )
-#define newEx(file,line) new(file,line)
-#endif
-*/
-// common names - sometimes in conflict when declaring
-// other functions... AND - release is a common
-// component of iComObject
-//#undef Allocate
-//#undef Release
-// Hmm wonder where this conflicted....
-//#undef LineDuplicate
-#else
-#ifdef USE_SACK_ALLOCER
-inline void * operator new(size_t size)
-{ return AllocateEx( size ); }
-inline void operator delete (void * p)
-{ ReleaseEx( p ); }
-#endif
-#endif
-#endif
-#endif
-#ifdef __LINUX__
-#endif
-#ifndef _TIMER_NAMESPACE
-#ifdef __cplusplus
-#define _TIMER_NAMESPACE namespace timers {
-/* define a timer library namespace in C++. */
-#define TIMER_NAMESPACE SACK_NAMESPACE namespace timers {
-/* define a timer library namespace in C++ end. */
-#define TIMER_NAMESPACE_END } SACK_NAMESPACE_END
-#else
-#define _TIMER_NAMESPACE
-#define TIMER_NAMESPACE
-#define TIMER_NAMESPACE_END
-#endif
-#endif
-// this is a method replacement to use PIPEs instead of SEMAPHORES
-// replacement code only affects linux.
-#if defined( __QNX__ ) || defined( __MAC__) || defined( __LINUX__ )
-#  if defined( __ANDROID__ ) || defined( EMSCRIPTEN ) || defined( __MAC__ )
-// android > 21 can use pthread_mutex_timedop
-#    define USE_PIPE_SEMS
-#  else
-//   Default behavior is to use pthread_mutex_timedlock for wakeable sleeps.
-// no semtimedop; no semctl, etc
-//#    include <sys/sem.h>
-//originally used semctl; but that consumes system resources that are not
-//cleaned up when the process exits.
-#endif
-#endif
-#ifdef USE_PIPE_SEMS
-#  define _NO_SEMTIMEDOP_
-#endif
-SACK_NAMESPACE
-/* This namespace contains methods for working with timers and
-   threads. Since timers are implemented in an asynchronous
-   thread, the thread creation and control can be exposed here
-   also.
-   ThreadTo
-   WakeThread
-   WakeableSleep [Example]
-   AddTimer
-   RemoveTimer
-   RescheduleTimer
-   EnterCriticalSec see Also
- EnterCriticalSecNoWait
-   LeaveCriticalSec                                            */
-_TIMER_NAMESPACE
-#ifdef TIMER_SOURCE
-#define TIMER_PROC(type,name) EXPORT_METHOD type CPROC name
-#else
-/* Defines import export and call method for timers. Looks like
-   timers are native calltype by default instead of CPROC.      */
-#define TIMER_PROC(type,name) IMPORT_METHOD type CPROC name
-#endif
-#if defined( __LINUX__ ) || defined( __ANDROID__ )
-TIMER_PROC( uint32_t, timeGetTime )( void );
-TIMER_PROC( uint32_t, GetTickCount )( void );
-TIMER_PROC( void, Sleep )( uint32_t ms );
-#endif
-/* Function signature for user callbacks passed to AddTimer. */
-typedef void (CPROC *TimerCallbackProc)( uintptr_t psv );
-/* Adds a new periodic timer. From now, until the timer is
-   removed with RemoveTimer, it will call the timer procedure at
-   the specified frequency of milliseconds. The delay until the
-   first time the timer fires can be specified independant of
-   frequency. If it is not specified, the first time the timer
-   will get invoked is at +1 frequency from now.
-   Parameters
-   start :      how long in milliseconds until the timer starts. Can
-                be 0 and timer will fire at the next opportunity.
-   frequency :  how long the delay is between event invocations,
-                in milliseconds.
-   callback :   user routine to call when the timer's delay
-                expires.
-   user :       user data to pass to the callback when it is
-                invoked.
-   Returns
-   a 32 bit ID that identifies the timer for this application.
-   Example
-   First some setup valid for all timer creations...
-   <code lang="c++">
-   void CPROC TimerProc( uintptr_t user_data )
-   {
-       // user_data of the timer is the 'user' parameter passed to AddTimer(Exx)
-   }
-   </code>
-   you might want to save this for something like
-   RescheduleTimer
-   <code>
-   uint32_t timer_id;
-   </code>
-   Create a simple timer, it will fire at 250 milliseconds from
-   now, and again every 250 milliseconds from the time it
-   starts.
-   <code lang="c++">
-   timer_id = AddTimer( 250, TimerProc, 0 );
-   </code>
-   Create a timer that fires immediately, and 732 milliseconds
-   after, passing some value 1234 as user data...
-   <code lang="c++">
-   timer_id = AddTimerEx( 0, 732, TimerProc, 1234 );
-	</code>
-	Remarks
-	if a timer is dispatched and needs to wait - please link with idlelib, and call Idle.
-	this will allow other timers to fire on schedule.  The timer that is waiting is not
-	in the list of timers to process.
-	*/
-TIMER_PROC( uint32_t, AddTimerExx )( uint32_t start, uint32_t frequency
-					, TimerCallbackProc callback
-					, uintptr_t user DBG_PASS);
-/* <combine sack::timers::AddTimerExx@uint32_t@uint32_t@TimerCallbackProc@uintptr_t user>
-   \ \                                                                         */
-#define AddTimerEx( s,f,c,u ) AddTimerExx( (s),(f),(c),(u) DBG_SRC )
-/* <combine sack::timers::AddTimerExx@uint32_t@uint32_t@TimerCallbackProc@uintptr_t user>
-   \ \                                                                         */
-#define AddTimer( f, c, u ) AddTimerExx( (f), (f), (c), (u) DBG_SRC)
-/* Stops a timer. The next time this timer would run, it will be
-   removed. If it is currently dispatched, it is safe to remove
-   from within the timer itself.
-   Parameters
-   timer :  32 bit timer ID from AddTimer.                       */
-TIMER_PROC( void, RemoveTimer )( uint32_t timer );
-/* Reschedule when a timer can fire. The delay can be 0 to make
-   wake the timer.
-   Parameters
-   timer :  32 bit timer identifier from AddTimer.
-   delay :  How long before the timer should run now.<p />If 0,
-            will issue timer immediately.<p />If not specified,
-            using the macro, the default delay is the timer's
-            frequency. (can prevent the timer from firing until
-            it's frequency from now.)                           */
-TIMER_PROC( void, RescheduleTimerEx )( uint32_t timer, uint32_t delay );
-/* <combine sack::timers::RescheduleTimerEx@uint32_t@uint32_t>
-   \ \                                               */
-TIMER_PROC( void, RescheduleTimer )( uint32_t timer );
-/* Changes the frequency of a timer. Reschedule timer only
-   changes the next time it fires, this can adjust the
-   frequency. The simple ChangeTimer macro is sufficient.
-   Parameters
-   ID :         32 bit ID of the time created by AddTimer.
-   initial :    initial delay of the timer. (Might matter if the
-                timer hasn't fired the first time)
-   frequency :  new delay between timer callback invokations.    */
-TIMER_PROC( void, ChangeTimerEx )( uint32_t ID, uint32_t initial, uint32_t frequency );
-/* <combine sack::timers::ChangeTimerEx@uint32_t@uint32_t@uint32_t>
-   \ \                                               */
-#define ChangeTimer( ID, Freq ) ChangeTimerEx( ID, Freq, Freq )
-/* This is the type returned by MakeThread, and passed to
-   ThreadTo. This is a private structure, and no definition is
-   publicly available, this should be treated like a handle.   */
-typedef struct threads_tag *PTHREAD;
-/* Function signature for a thread entry point passed to
-   ThreadTo.                                             */
-typedef uintptr_t (CPROC*ThreadStartProc)( PTHREAD );
-/* Function signature for a thread entry point passed to
-   ThreadToSimple.                                             */
-typedef uintptr_t (*ThreadSimpleStartProc)( POINTER );
-/*
-  OnThreadCreate allows registering a procedure to run
-  when a thread is created.  (Or an existing thread becomes
-  tracked within this library, via MakeThread() ).
-  It is called once per thread, for each thread created
-  after registering the callback.
-*/
-TIMER_PROC( void, OnThreadCreate )( void ( *v )( void ) );
-/* Create a separate thread that starts in the routine
-   specified. The uintptr_t value (something that might be a
-   pointer), is passed in the PTHREAD structure. (See
-   GetThreadParam)
-   Parameters
-   proc :       starting routine for the thread
-   user_data :  some value that can be stored in the number of
-                bits that a pointer is. This is passed to the
-                proc when the thread starts.
-   Example
-   See WakeableSleepEx.                                        */
-TIMER_PROC( PTHREAD, ThreadToEx )( ThreadStartProc proc, uintptr_t param DBG_PASS );
-/* <combine sack::timers::ThreadToEx@ThreadStartProc@uintptr_t param>
-   \ \                                                               */
-#define ThreadTo(proc,param) ThreadToEx( proc,param DBG_SRC )
-/* Create a separate thread that starts in the routine
-   specified. The uintptr_t value (something that might be a
-   pointer), is passed in the PTHREAD structure. (See
-   GetThreadParam)
-   Parameters
-   proc :       starting routine for the thread
-   user_data :  some value that can be stored in the number of
-                bits that a pointer is. This is passed to the
-                proc when the thread starts.
-   Example
-   See WakeableSleepEx.                                        */
-TIMER_PROC( PTHREAD, ThreadToSimpleEx )( ThreadSimpleStartProc proc, POINTER param DBG_PASS );
-/* <combine sack::timers::ThreadToEx@ThreadStartProc@uintptr_t param>
-   \ \                                                               */
-#define ThreadToSimple(proc,param) ThreadToSimpleEx( proc,param DBG_SRC )
-/* \Returns a PTHREAD that represents the current thread. This
-   can be used to create a PTHREAD identifier for the main
-   thread.
-   Parameters
-   None.
-   Returns
-   a pointer to a thread structure that identifies the current
-   thread. If this thread already has this structure created,
-   the same one results on subsequent MakeThread calls.        */
-TIMER_PROC( PTHREAD, MakeThread )( void );
-/* This returns the parameter passed as user data to ThreadTo.
-   Parameters
-   thread :  thread to get the parameter from.
-   Example
-   See WakeableSleepEx.                                        */
-TIMER_PROC( uintptr_t, GetThreadParam )( PTHREAD thread );
-/* \returns the numeric THREAD_ID from a PTHREAD.
-   Parameters
-   thread :  thread to get the system wide unique ID of. */
-TIMER_PROC( THREAD_ID, GetThreadID )( PTHREAD thread );
-/* \returns the numeric THREAD_ID from a PTHREAD.
-   Parameters
-   thread :  thread to get the system wide unique ID of. */
-TIMER_PROC( THREAD_ID, GetThisThreadID )( void );
-/* Symbol defined to pass to Wakeable_Sleep to sleep until
-   someone calls WakeThread.                               */
-#define SLEEP_FOREVER 0xFFFFFFFF
-/* Sleeps a number of milliseconds or until the thread is passed
-   to WakeThread.
-   Parameters
-   dwMilliseconds :  How long to sleep. Can be indefinite if
-                     value is SLEEP_FOREVER.
-   Example
-   <code lang="c++">
-   PTHREAD main_thread;
-   uintptr_t CPROC WakeMeThread( PTHREAD thread )
-   {
-      // get the value passed to ThreadTo as user_data.
-      uintptr_t user_data = GetThreadParam( thread );
-      // let the main thread sleep a little wile
-       WakeableSleep( 250 );
-      // then wake it up
-       WakeThread( main_thread );
-       return 0;
-   }
-   int main( void )
-   {
-       // save my PTHREAD globally.
-       main_thread = MakeThread();
-       // create a thread that can wake us
-       ThreadTo( WakeMeThread, 0 );
-       // demonstrate sleeping
-       WakableSleep( SLEEP_FOREVER );
-       return 0;
-   }
-   </code>                                                       */
-TIMER_PROC( void, WakeableSleepEx )( uint32_t milliseconds DBG_PASS );
-TIMER_PROC( void, WakeableSleep )( uint32_t milliseconds );
-TIMER_PROC( void, WakeableNamedSleepEx )( CTEXTSTR name, uint32_t n DBG_PASS );
-#define WakeableNamedSleep( name, n )   WakeableNamedSleepEx( name, n DBG_SRC )
-TIMER_PROC( void, WakeNamedSleeperEx )( CTEXTSTR name DBG_PASS );
-#define WakeNamedSleeper( name )   WakeNamedSleeperEx( name DBG_SRC )
-TIMER_PROC( void, WakeableNamedThreadSleepEx )( CTEXTSTR name, uint32_t n DBG_PASS );
-#define WakeableNamedThreadSleep( name, n )   WakeableNamedThreadSleepEx( name, n DBG_SRC )
-TIMER_PROC( void, WakeNamedThreadSleeperEx )( CTEXTSTR name, THREAD_ID therad DBG_PASS );
-#define WakeNamedThreadSleeper( name, thread )   WakeNamedThreadSleeperEx( name, thread DBG_SRC )
-#ifdef USE_PIPE_SEMS
-TIMER_PROC( int, GetThreadSleeper )( PTHREAD thread );
-#endif
-/* <combine sack::timers::WakeableSleepEx@uint32_t milliseconds>
-   \ \                                                      */
-#define WakeableSleep(n) WakeableSleepEx(n DBG_SRC )
-/* Wake a thread by ID, if the pThread is not available. Can be
-   used cross-process for instance. Although someone could add a
-   method to provide a PTHREAD wrapper around THREAD_ID for
-   threads in remote processes, this may not be a best practice.
-   Parameters
-   thread_id :  THREAD_ID from GetMyThreadID, which is a macro
-                appropriate for a platform.                      */
-TIMER_PROC( void, WakeThreadIDEx )( THREAD_ID thread DBG_PASS );
-/* Wake a thread.
-   Example
-   See WakeableSleepEx.
-   Parameters
-   pThread :  thread to wake up from a WakeableSleep. */
-TIMER_PROC( void, WakeThreadEx )( PTHREAD thread DBG_PASS );
-/* <combine sack::timers::WakeThreadIDEx@THREAD_ID thread>
-   \ \                                                     */
-#define WakeThreadID(thread) WakeThreadIDEx( thread DBG_SRC )
-/* <combine sack::timers::WakeThreadEx@PTHREAD thread>
-   \ \                                                 */
-#define WakeThread(t) WakeThreadEx(t DBG_SRC )
-/* This can be checked to see if the THREAD_ID to wake still has
-   an event. Sometimes threads end.
-   Parameters
-   thread :  thread identifier to check to see if it exists/can be
-             woken.
-   Returns
-   TRUE if the thread can be signaled to wake up.
-   FALSE if the thread cannot be found or cannot be woken up.      */
-TIMER_PROC( int, TestWakeThreadID )( THREAD_ID thread );
-/* This can be checked to see if the PTHREAD to wake still has
-   an event. Sometimes threads call UnmakeThread(). This is a
-   more practical test using a THREAD_ID instead. See
-   TestWakeThreadID.
-   Returns
-   TRUE if the thread can be signaled to wake up.
-   FALSE if the thread cannot be found or cannot be woken up.  */
-TIMER_PROC( int, TestWakeThread )( PTHREAD thread );
-//TIMER_PROC( void, WakeThread )( PTHREAD thread );
-TIMER_PROC( void, EndThread )( PTHREAD thread );
-/* This tests to see if a pointer to a thread references the
-   current thread.
-   Parameters
-   thread :  thread to check to see if it is the current thread.
-   Returns
-   TRUE if this thread is the same as the PTHREAD passed.
-   otherwise FALSE.
-   Example
-   <code lang="c++">
-   PTHREAD main_thread;
-   LOGICAL thread_finished_check;
-   uintptr_t CPROC ThreadProc( PTHREAD thread )
-   {
-       if( IsThisThread( main_thread ) )
-            printf( "This thread is not the main thread.\\n" );
-       else
-            printf( "This is the main thread - cannot happen :)\\n" );
-   </code>
-   <code>
-       // mark that this thread is complete
-       thread_finished_check = TRUE;
-   </code>
-   <code lang="c++">
-       // hmm - for some reason, just pass the uintptr_t that was passed to ThreadTo as the result.
-       return GetThreadParam( thread );
-   }
-   int main( void )
-   {
-        main_thread = MakeThread();
-        ThreadTo( ThreadProc, 0 );
-        // wait for the thread to finish its thread identity check.
-        while( !thread_finished_check )
-            Relinquish();
-        return 0;
-   }
-   </code>                                                                                         */
-TIMER_PROC( int, IsThisThreadEx )( PTHREAD pThreadTest DBG_PASS );
-/* <combine sack::timers::IsThisThreadEx@PTHREAD pThreadTest>
-   \ \                                                        */
-#define IsThisThread(thread) IsThisThreadEx(thread DBG_SRC)
-/* Enter a critical section. Only a single thread may be in a
-   critical section, if a second thread attempts to enter the
-   section while another thread is in it will block until the
-   original thread leaves the section. The same thread may enter
-   a critical section multiple times. For each time a critical
-   section is entered, the thread must also leave the critical
-   section (See LeaveCriticalSection).
-   Parameters
-   pcs :  pointer to a critical section to enter                 */
-TIMER_PROC( LOGICAL, EnterCriticalSecEx )( PCRITICALSECTION pcs DBG_PASS );
-/* Leaves a critical section. See EnterCriticalSecEx.
-   Parameters
-   pcs :  pointer to a critical section.              */
-TIMER_PROC( LOGICAL, LeaveCriticalSecEx )( PCRITICALSECTION pcs DBG_PASS );
-/* Does nothing. There are no extra resources required for
-   critical sections, and the memory is allocated by the
-	application; native windows criticalsections allocate an
-   external object; this should be called typically.
-   Parameters
-   pcs :  pointer to critical section to do nothing with.  */
-TIMER_PROC( void, DeleteCriticalSec )( PCRITICALSECTION pcs );
-#ifdef _WIN32
-	TIMER_PROC( HANDLE, GetWakeEvent )( void );
-	TIMER_PROC( HANDLE, GetThreadHandle )( PTHREAD thread );
-#endif
-#ifdef __LINUX__
-	TIMER_PROC( pthread_t, GetThreadHandle )(PTHREAD thread);
-#endif
-#ifdef USE_NATIVE_CRITICAL_SECTION
-#define EnterCriticalSec(pcs) EnterCriticalSection( pcs )
-#define LeaveCriticalSec(pcs) LeaveCriticalSection( pcs )
-#else
-/* <combine sack::timers::EnterCriticalSecEx@PCRITICALSECTION pcs>
-   \ \                                                             */
-#define EnterCriticalSec( pcs ) EnterCriticalSecEx( (pcs) DBG_SRC )
-/* <combine sack::timers::LeaveCriticalSecEx@PCRITICALSECTION pcs>
-   \ \                                                             */
-#define LeaveCriticalSec( pcs ) LeaveCriticalSecEx( (pcs) DBG_SRC )
-#endif
-TIMER_NAMESPACE_END
-#ifdef __cplusplus
-using namespace sack::timers;
-#endif
-#endif
-// $Log: timers.h,v $
-// Revision 1.37  2005/05/16 19:06:58  jim
-// Extend wakeable sleep to know the originator of the sleep.
-//
-// Revision 1.36  2004/09/29 16:42:51  d3x0r
-// fixed queues a bit - added a test wait function for timers/threads
-//
-// Revision 1.35  2004/07/07 15:33:54  d3x0r
-// Cleaned c++ warnings, bad headers, fixed make system, fixed reallocate...
-//
-// Revision 1.34  2004/05/02 02:04:16  d3x0r
-// Begin border exclusive option, define PushMethod explicitly, fix LaunchProgram in timers.h
-//
-// Revision 1.33  2003/12/10 15:38:25  panther
-// Move Sleep and GetTickCount to real code
-//
-// Revision 1.32  2003/11/02 00:31:47  panther
-// Added debuginfo pass to wakethread
-//
-// Revision 1.31  2003/10/24 14:59:21  panther
-// Added Load/Unload Function for system shared library abstraction
-//
-// Revision 1.30  2003/10/17 00:56:04  panther
-// Rework critical sections.
-// Moved most of heart of these sections to timers.
-// When waiting, sleep forever is used, waking only when
-// released... This is preferred rather than continuous
-// polling of section with a Relinquish.
-// Things to test, event wakeup order uner linxu and windows.
-// Even see if the wake ever happens.
-// Wake should be able to occur across processes.
-// Also begin implmeenting MessageQueue in containers....
-// These work out of a common shared memory so multiple
-// processes have access to this region.
-//
-// Revision 1.29  2003/09/21 04:03:30  panther
-// Build thread ID with pthread_self and getgid
-//
-// Revision 1.28  2003/07/29 10:41:25  panther
-// Predefine struct threads_tag to avoid warning
-//
-// Revision 1.27  2003/07/24 22:49:20  panther
-// Define callback procs as CDECL
-//
-// Revision 1.26  2003/07/24 16:56:41  panther
-// Updates to expliclity define C procedure model for callbacks and assembly modules - incomplete
-//
-// Revision 1.25  2003/07/22 15:33:19  panther
-// Added comment about idle()
-//
-// Revision 1.24  2003/04/03 10:10:20  panther
-// Add file/line debugging to addtimer
-//
-// Revision 1.23  2003/03/27 13:47:14  panther
-// Immplement a EndThread
-//
-// Revision 1.22  2003/03/25 08:38:11  panther
-// Add logging
-//
-#ifndef MAXPATH
-// windef.h has MAX_PATH
-#  define MAXPATH MAX_PATH
-#  if (!MAXPATH)
-#    undef MAXPATH
-#    define MAXPATH 256
-#  endif
-#endif
-#ifndef PATH_MAX
-// sometimes PATH_MAX is what's used, well it's should be MAXPATH which is MAX_PATH
-# define PATH_MAX MAXPATH
-#endif
-#ifdef _WIN32
-#  ifdef CONSOLE_SHELL
- // in order to get wide characters from the commandline we have to use the GetCommandLineW function, convert it to utf8 for internal usage.
-#    define SaneWinMain(a,b) int main( int a, char **argv_real ) { char *tmp; TEXTCHAR **b; ParseIntoArgs( tmp = WcharConvert( GetCommandLineW() ), &a, &b ); Deallocate( char*, tmp ); {
-#    define EndSaneWinMain() } }
-#  else
-#    define SaneWinMain(a,b) int APIENTRY WinMain( HINSTANCE hInst, HINSTANCE hPrev, LPSTR lpCmdLine, int nCmdShow ) { int a; char *tmp; TEXTCHAR **b; ParseIntoArgs( tmp = WcharConvert( GetCommandLineW() ), &a, &b ); {
-#    define EndSaneWinMain() } }
-#  endif
-#else
-#  if defined( __ANDROID__ ) && !defined( ANDROID_CONSOLE_UTIL )
-#    define SaneWinMain(a,b) int SACK_Main( int a, char **b )
-#    define EndSaneWinMain()
-#  else
-#    define SaneWinMain(a,b) int main( int a, char **b ) { char **argv_real = b; {
-#    define EndSaneWinMain() } }
-#  endif
-#endif
-/**
- * https://stackoverflow.com/questions/3585583/convert-unix-linux-time-to-windows-filetime
- * number of seconds from 1 Jan. 1601 00:00 to 1 Jan 1970 00:00 UTC
- * subtract from FILETIME to get timespec
- * add to timespec to get FILETIME ticks.
- * * 1000000000
- */
-#define EPOCH_DIFF 11644473600ULL
-#define EPOCH_DIFF_MS 11644473600000ULL
-#define EPOCH_DIFF_NS 11644473600000000000ULL
-#ifdef WIN32
-DeclareThreadLocal FILETIME ft;
-// we want this as fast as possible, so inline always.
-#define timeGetTime64ns( ) ( GetSystemTimeAsFileTime( &ft ),((uint64_t*)&ft)[0]*100-EPOCH_DIFF_NS )
-#define timeGetTime64( ) ( GetSystemTimeAsFileTime( &ft ),((uint64_t*)&ft)[0]/10000-EPOCH_DIFF_MS )
-#define timeGetTime() (uint32_t)(timeGetTime64())
-#else
-DeclareThreadLocal struct timespec global_static_time_ts;
-#define timeGetTime64ns( ) ( clock_gettime(CLOCK_REALTIME, &global_static_time_ts), (uint64_t)global_static_time_ts.tv_sec*(uint64_t)1000000000 + (uint64_t)global_static_time_ts.tv_nsec )
-#define timeGetTime64( ) ( clock_gettime(CLOCK_REALTIME, &global_static_time_ts), (uint64_t)global_static_time_ts.tv_sec*(uint64_t)1000 + (uint64_t)global_static_time_ts.tv_nsec/1000000 )
-#define timeGetTime() (uint32_t)(timeGetTime64())
-#endif
-#define tickToTimeSpec(ts,tick) (((ts).tv_sec = (tick) / 1000ULL),((ts).tv_nsec=((tick)%1000ULL)*1000000ULL))
-#define tickToFileTime(ft,tick) ((((ft).highPart).tv_sec = ((tick*10000)+EPOCH_DIFF_MS)>>32 ),(((ft).lowPart)=((tick*10000)+EPOCH_DIFF_MS) & 0XFFFFFFFF ))
-#define tickNsToTimeSpec(ts,tick) (((ts).tv_sec = (tick) / 1000000000ULL),((ts).tv_nsec=(tick)%1000000000ULL))
-#define tickNsToFileTime(ft,tick) ((((ft).highPart).tv_sec = ((tick)+EPOCH_DIFF_NS)>>32 ),(((ft).lowPart)=((tick)+EPOCH_DIFF_NS) & 0XFFFFFFFF ))
-//  these are rude defines overloading otherwise very practical types
-// but - they have to be dispatched after all standard headers.
-#ifndef FINAL_TYPES
-#define FINAL_TYPES
-#  ifdef __WATCOMC__
- //__WATCOMC__
-#  endif
-#  ifdef _WIN32
-#    include <basetsd.h>
-  // this redefines lprintf sprintf etc... and strsafe is preferred
- // more things that need override by strsafe.h
-#    include <tchar.h>
- // added for mingw64 actually
-#    ifdef __GNUC__
-#      undef __CRT__NO_INLINE
-#    endif
-#    ifndef MINGW_SUX
-#      include <strsafe.h>
-#    else
-#      define STRSAFE_E_INSUFFICIENT_BUFFER  0x8007007AL
-#    endif
-#  else
-#  endif
-// may consider changing this to uint16_t* for unicode...
-#ifdef UNICODE
-#  ifndef NO_UNICODE_C
-#    define strrchr          wcsrchr
-#    define strchr           wcschr
-#    define strncpy          wcsncpy
-#    ifdef strcpy
-#      undef strcpy
-#    endif
-#    define strcpy           wcscpy
-#    define strcmp           wcscmp
-#    ifndef __LINUX__
-// linux also translates 'i' to 'case' in sack_typelib.h
-#      define stricmp          wcsicmp
-#      define strnicmp         wcsnicmp
-//#  define strlen           mbrlen
-#    endif
-#    define strlen           wcslen
-#    ifdef WIN32
-#      define stat(a,b)        _wstat(a,b)
-#    else
-#    endif
-#    define printf           wprintf
-#    define fprintf          fwprintf
-#    define fputs            fputws
-#    define fgets            fgetws
-#    define atoi             _wtoi
-#    ifdef __WATCOMC__
-#      undef atof
-#    endif
-//#    define atof             _wtof
-#    ifdef _MSC_VER
-#      ifndef __cplusplus_cli
-#        define fprintf   fwprintf
-#        define atoi      _wtoi
-// define sprintf here.
-#      endif
-#    endif
-#    if defined( _ARM_ ) && defined( WIN32 )
-// len should be passed as character count. this was the wrongw ay to default this.
-#      define snprintf StringCbPrintf
-//#define snprintf StringCbPrintf
-#    endif
-#  else
-//#    define atoi             wtoi
-#  endif
- // not unicode...
-#else
-#endif
-#  ifdef _MSC_VER
-#    define snprintf _snprintf
-#    define vsnprintf _vsnprintf
-#    if defined( _UNICODE )
-#      define tnprintf _snwprintf
-#      define vtnprintf _vsnwprintf
-#    else
-#      define tnprintf _snprintf
-#      define vtnprintf _vsnprintf
-#    endif
-#    define snwprintf _snwprintf
-#    if defined( _UNICODE ) && !defined( NO_UNICODE_C )
-#    define tscanf swscanf_s
-#    else
-#    define tscanf sscanf_s
-#    endif
-#    define scanf sscanf_s
-#    define swcanf swscanf_s
- // _MSC_VER
-#  endif
-#  ifdef  __GNUC__
-#      if defined( _UNICODE )
-#        define VSNPRINTF_FAILS_RETURN_SIZE
-#        define tnprintf  swprintf
-#        define vtnprintf vswprintf
-#        if !defined( NO_UNICODE_C )
-#           define snprintf   swprintf
-#           define vsnprintf  vswprintf
-//#           define sscanf     swscanf
-#        else
-#        endif
-#      else
-#        define tnprintf snprintf
-#        define vtnprintf vsnprintf
-//#        define snprintf snprintf
-//#        define vsnprintf vsnprintf
-#    if defined( _UNICODE ) && !defined( NO_UNICODE_C )
-#    define tscanf swscanf
-#    else
-#    define tscanf sscanf
-#    endif
-#      endif
- // __GNUC__
-#  endif
-#  ifdef __WATCOMC__
-#      if defined( _UNICODE )
-#        define tnprintf  _snwprintf
-#        define vtnprintf _vsnwprintf
-#        if !defined( NO_UNICODE_C )
-#           define snprintf  _snwprintf
-#           define vsnprintf _vsnwprintf
-#           define sscanf     swscanf
-#        else
-#        endif
-#      else
-#         define tnprintf  snprintf
-#         define vtnprintf vsnprintf
-//#        define snprintf snprintf
-//#        define vsnprintf vsnprintf
-#      endif
-#        define snwprintf  _snwprintf
- // __WATCOMC__
-#  endif
-#endif
-#endif
 #ifndef DEADSTART_DEFINED
 #define DEADSTART_DEFINED
 #ifdef WIN32
@@ -24034,13 +17113,13 @@ NETWORK_PROC( void, NetworkUnlockEx )( PCLIENT pc, int readWrite DBG_PASS );
 typedef void (CPROC*cReadComplete)(PCLIENT, POINTER, size_t );
 typedef void (CPROC*cReadCompleteEx)(PCLIENT, POINTER, size_t, SOCKADDR * );
 typedef void (CPROC*cCloseCallback)(PCLIENT);
-typedef void (CPROC*cWriteComplete)(PCLIENT );
+typedef void (CPROC*cWriteComplete)(PCLIENT, CPOINTER buffer, size_t len );
 typedef void (CPROC*cNotifyCallback)(PCLIENT server, PCLIENT newClient);
 typedef void (CPROC*cConnectCallback)(PCLIENT, int);
 typedef void (CPROC*cppReadComplete)(uintptr_t, POINTER, size_t );
 typedef void (CPROC*cppReadCompleteEx)(uintptr_t,POINTER, size_t, SOCKADDR * );
 typedef void (CPROC*cppCloseCallback)(uintptr_t);
-typedef void (CPROC*cppWriteComplete)(uintptr_t );
+typedef void (CPROC*cppWriteComplete)(uintptr_t, CPOINTER buffer, size_t len );
 typedef void (CPROC*cppNotifyCallback)(uintptr_t, PCLIENT newClient);
 typedef void (CPROC*cppConnectCallback)(uintptr_t, int);
 enum SackNetworkErrorIdentifier {
@@ -24583,6 +17662,13 @@ NETWORK_PROC( int, GetMacAddress)(PCLIENT pc, uint8_t* buf, size_t *buflen );
 //int get_mac_addr (char *device, unsigned char *buffer)
 NETWORK_PROC( PLIST, GetMacAddresses)( void );
 NETWORK_PROC( LOGICAL, sack_network_is_active )( PCLIENT pc );
+// mark that a socket has outstanding work.  If a close is handled while in network read
+// prevent the automatic close until work is cleared.
+NETWORK_PROC( void, AddNetWork )( PCLIENT lpClient, uintptr_t psv );
+// clear outstanding work on a socket.  Once all work is cleared, and the socket is flagged
+// to close, then a oustanding close operation will be performed when the last work is cleared.
+//
+NETWORK_PROC( void, ClearNetWork )( PCLIENT lpClient, uintptr_t psv );
 NETWORK_PROC( void, RemoveClientExx )(PCLIENT lpClient, LOGICAL bBlockNofity, LOGICAL bLinger DBG_PASS );
 /* <combine sack::network::RemoveClientExx@PCLIENT@LOGICAL@LOGICAL bLinger>
    \ \                                                                      */
@@ -25149,6 +18235,33 @@ struct HttpField {
 	PTEXT name;
 	PTEXT value;
 };
+struct HTTPRequestHeader {
+	char* field;
+	char* value;
+};
+struct HTTPRequestOptions {
+  // deafult GET
+	const char* method;
+     // path part of the request
+	PTEXT url;
+ // address part of request (ip:port)
+	PTEXT address;
+ // list of TEXTCAHR*
+	PLIST headers;
+  // content to send with request, if any
+	CPOINTER content;
+// lengt of content to send with request
+	size_t contentLen;
+ // set to true to request over SSL;
+	LOGICAL ssl;
+ //optionally this can be used to specify the certain, if not set, uses parameter, which will otherwise be NULL.
+	const char* certChain;
+	// specify the agent field, default to SACK(System)
+	const char* agent;
+	// if set, will be called when content buffer has been sent.
+	void ( *writeComplete )( uintptr_t userData );
+	uintptr_t userData;
+};
 typedef struct HttpState *HTTPState;
 enum ProcessHttpResult{
 	HTTP_STATE_RESULT_NOTHING = 0,
@@ -25194,7 +18307,7 @@ HTTP_EXPORT int HTTPAPI ProcessHttp( PCLIENT pc, HTTPState pHttpState );
 HTTP_EXPORT
  /* Gets the specific result code at the header of the packet -
    http 2.0 OK sort of thing.                                  */
-PTEXT HTTPAPI GetHttpResponce( HTTPState pHttpState );
+PTEXT HTTPAPI GetHttpResponse( HTTPState pHttpState );
 /* Get the method of the request in ht e http state.
 */
 HTTP_EXPORT PTEXT HTTPAPI GetHttpMethod( struct HttpState *pHttpState );
@@ -25276,6 +18389,8 @@ HTTP_EXPORT PTEXT HTTPAPI GetHttp( PTEXT site, PTEXT resource, LOGICAL secure );
 /* results with just the content of the message; no access to other information avaialble */
 HTTP_EXPORT PTEXT HTTPAPI GetHttps( PTEXT address, PTEXT url, const char *certChain );
 /* results with the http state of the message response; Allows getting other detailed information about the result */
+HTTP_EXPORT HTTPState HTTPAPI GetHttpsQueryEx( PTEXT address, PTEXT url, const char* certChain, struct HTTPRequestOptions* options );
+/* results with the http state of the message response; Allows getting other detailed information about the result */
 HTTP_EXPORT HTTPState  HTTPAPI PostHttpQuery( PTEXT site, PTEXT resource, PTEXT content );
 /* results with the http state of the message response; Allows getting other detailed information about the result */
 HTTP_EXPORT HTTPState  HTTPAPI GetHttpQuery( PTEXT site, PTEXT resource );
@@ -25283,6 +18398,8 @@ HTTP_EXPORT HTTPState  HTTPAPI GetHttpQuery( PTEXT site, PTEXT resource );
 HTTP_EXPORT HTTPState HTTPAPI GetHttpsQuery( PTEXT site, PTEXT resource, const char *certChain );
 /* return the numeric response code of a http reply. */
 HTTP_EXPORT int HTTPAPI GetHttpResponseCode( HTTPState pHttpState );
+/* return the text response code of an http reply */
+HTTP_EXPORT const char* HTTPAPI GetHttpResponseStatus( HTTPState pHttpState );
 #define CreateHttpServer(interface_address,site,psv) CreateHttpServerEx( interface_address,NULL,site,NULL,psv )
 #define CreateHttpServer2(interface_address,site,default_handler,psv) CreateHttpServerEx( interface_address,NULL,site,default_handler,psv )
 // receives events for either GET if aspecific OnHttpRequest has not been defined for the specific resource
@@ -25696,7 +18813,7 @@ struct url_data * SACK_URLParse( const char *url )
  // blank cgi names go & to & and stay in the same state
 				&& ( state != PARSE_STATE_COLLECT_CGI_NAME )
 				)
-				lprintf( "Dropping character (%d) '%c' in %s", url - _outbuf, ch, _outbuf );
+				lprintf( "Dropping character (%d) '%c' in %s", (int)(url - _outbuf), ch, _outbuf );
 		}
 		_state = state;
 	}
@@ -29884,50 +23001,52 @@ namespace sack {
 #    pragma pack (push, 1)
 #  endif
 // custom allocer, use heap_chunk_tag
-PREFIX_PACKED struct malloc_chunk_tag
+struct malloc_chunk_tag
 {
-   // if 0 - block is free
-	uint16_t dwOwners;
-      // extra bytes 4/12 typical, sometimes pad untill next. (alignment extra bytes)
-	uint16_t dwPad;
-#ifdef __64__
-	uint32_t pad;
-#endif
-  // limited to allocating 4 billion bytes...
 	uintptr_t dwSize;
 #ifdef ENABLE_NATIVE_MALLOC_PROTECTOR
 	uint32_t LeadProtect[2];
 #endif
+	PREFIX_PACKED struct {
+   // if 0 - block is free
+		uint16_t dwOwners;
+      // extra bytes 4/12 typical, sometimes pad untill next. (alignment extra bytes)
+		uint16_t dwPad;
  // this is additional to subtract to get back to start (aligned allocate)
-	uint16_t alignment;
+		uint16_t alignment;
  // this is additional to subtract to get back to start (aligned allocate)
-	uint16_t to_chunk_start;
+		uint16_t to_chunk_start;
+	} PACKED info;
  // uint8_t is the smallest valid datatype could be _0
 	uint8_t byData[1];
-} PACKED;
-PREFIX_PACKED struct heap_chunk_tag
+};
+struct heap_chunk_tag
 {
+ // *next, **me; &next is also &this block.
 	DeclareLink( struct heap_chunk_tag );
-            // if 0 - block is free
-	uint16_t dwOwners;
-   // extra bytes 4/12 typical, sometimes pad untill next.
-	uint16_t dwPad;
 	// which is < ( CHUNK_SIZE + nMinAllocate )
 	// real size is then dwSize - dwPad.
 	// this is actually where the end of block tag(s) should begin!
-  // limited to allocating 4 billion bytes...
 	uintptr_t dwSize;
          // save some math backwards...
 	struct heap_chunk_tag *pPrior;
+   // needed for release to find free linked list head
   // pointer to master allocation struct (pMEM)
-	struct memory_block_tag * pRoot;
+	struct memory_block_tag *pRoot;
+	PREFIX_PACKED struct {
+            // if 0 - block is free
+		uint16_t dwOwners;
+   // extra bytes 4/12 typical, sometimes pad untill next.
+		uint16_t dwPad;
  // this is additional to subtract to get back to start (aligned allocate)
-	uint16_t alignment;
+		uint16_t alignment;
+      // to_chunk_start is computed from byData offset by alignment minus a uin16_t.
  // this is additional to subtract to get back to start (aligned allocate)
-	uint16_t to_chunk_start;
+		uint16_t to_chunk_start;
+	} PACKED info;
  // uint8_t is the smallest valid datatype could be _0
 	uint8_t byData[1];
-} PACKED;
+};
 // a chunk of memory in a heap space, heaps are also tracked, so extents
 // of that space are known, therefore one can identify a heap chunk
 // from a non-heap (malloc?) chunk.
@@ -30164,12 +23283,12 @@ struct global_memory_tag global_memory_data = { 0x10000 * 0x08, 1, 1
 #endif
 #define MAGIC_SIZE sizeof( void* )
 #ifdef __64__
-#define BLOCK_TAG(pc)  (*(uint64_t*)((pc)->byData + (pc)->dwSize - (pc)->dwPad ))
+#define BLOCK_TAG(pc)  (*(uint64_t*)((pc)->byData + (pc)->dwSize - (pc)->info.dwPad ))
 // so when we look at memory this stamp is 0123456789ABCDEF
 #define TAG_FORMAT_MODIFIER "ll"
 #define BLOCK_TAG_ID 0xefcdab8967452301LL
 #else
-#define BLOCK_TAG(pc)  (*(uint32_t*)((pc)->byData + (pc)->dwSize - (pc)->dwPad ))
+#define BLOCK_TAG(pc)  (*(uint32_t*)((pc)->byData + (pc)->dwSize - (pc)->info.dwPad ))
 // so when we look at memory this stamp is 12345678
 #define TAG_FORMAT_MODIFIER "l"
 #define BLOCK_TAG_ID 0x78563412L
@@ -30761,9 +23880,9 @@ static void DoCloseSpace( PSPACE ps, int bFinal )
 		CloseHandle( ps->hFile );
 #else
 		munmap( ps->pMem, ps->dwSmallSize );
-		if( ps->flags.bTemporary && (ps->hFile >= 0) )
+		if( (ps->hFile >= 0) )
 		{
-			if( bFinal )
+			if( ps->flags.bTemporary && bFinal )
 			{
 				char file[256];
 				char fdname[64];
@@ -31434,15 +24553,15 @@ uintptr_t GetFileSize( int fd )
 	pMem->dwSize = dwSize;
 	pMem->dwHeapID = 0xbab1f1ea;
 	pMem->pFirstFree = NULL;
-        pMem->dwFlags = 0;
+	pMem->dwFlags = 0;
         // this uses the address of next to assign a member.
         // next is the first member of this structure;
         // even if it is packed, there's no issue surely with taking the address of the first member?
 	LinkThing( pMem->pFirstFree, pMem->pRoot );
 	InitializeCriticalSec( &pMem->cs );
 	pMem->pRoot[0].dwSize = dwSize - MEM_SIZE - CHUNK_SIZE;
-	pMem->pRoot[0].dwPad = MAGIC_SIZE;
-	pMem->pRoot[0].dwOwners = 0;
+	pMem->pRoot[0].info.dwPad = MAGIC_SIZE;
+	pMem->pRoot[0].info.dwOwners = 0;
 	pMem->pRoot[0].pRoot  = pMem;
 	pMem->pRoot[0].pPrior = NULL;
 #ifdef _DEBUG
@@ -31457,7 +24576,7 @@ uintptr_t GetFileSize( int fd )
 		BLOCK_TAG( pMem->pRoot ) = BLOCK_TAG_ID;
 	}
 	{
-		pMem->pRoot[0].dwPad += 2*MAGIC_SIZE;
+		pMem->pRoot[0].info.dwPad += 2*MAGIC_SIZE;
 		BLOCK_FILE( pMem->pRoot ) = __FILE__;
 		BLOCK_LINE( pMem->pRoot ) = __LINE__;
 	}
@@ -31607,9 +24726,9 @@ POINTER HeapAllocateAlignedEx( PMEM pHeap, size_t dwSize, uint16_t alignment DBG
 #else
 		pc = (PMALLOC_CHUNK)malloc( sizeof( MALLOC_CHUNK ) - 1 + dwSize );
 #endif
-		pc->dwOwners = 1;
+		pc->info.dwOwners = 1;
+		pc->info.dwPad = dwAlignPad;
 		pc->dwSize = dwSize;
-		pc->dwPad = dwAlignPad;
 #ifndef NO_LOGGING
 #  ifdef _DEBUG
 		if( g.bLogAllocate )
@@ -31624,18 +24743,16 @@ POINTER HeapAllocateAlignedEx( PMEM pHeap, size_t dwSize, uint16_t alignment DBG
 			mask = masks[alignment];
 		if( alignment && ( (uintptr_t)pc->byData & ~mask) ) {
 			uintptr_t retval = ((((uintptr_t)pc->byData) + (alignment - 1)) & mask);
-			//pc->dwPad = (uint16_t)( dwAlignPad - sizeof(uintptr_t) );
+			//pc->info.dwPad = (uint16_t)( dwAlignPad - sizeof(uintptr_t) );
 			// to_chunk_start is the last thing in chunk, so it's pre-allocated space
- /*pc->alignemnt = */
-			((uint16_t*)(retval - sizeof(uint32_t)))[0] =alignment;
- /*pc->to_chunk_start = */
-			((uint16_t*)(retval - sizeof(uint32_t)))[1] =(uint16_t)(((((uintptr_t)pc->byData) + (alignment - 1)) & mask) - (uintptr_t)pc->byData);
+			((uint16_t*)(retval - sizeof(uint32_t)))[0] = alignment;
+			((uint16_t*)(retval - sizeof(uint32_t)))[1] = (uint16_t)(((((uintptr_t)pc->byData) + (alignment - 1)) & mask) - (uintptr_t)pc->byData);
  //-V773
 			return (POINTER)retval;
 		}
 		else {
-			pc->alignment = 0;
-			pc->to_chunk_start = 0;
+			pc->info.alignment = 0;
+			pc->info.to_chunk_start = 0;
 			return pc->byData;
 		}
 	}
@@ -31715,9 +24832,9 @@ POINTER HeapAllocateAlignedEx( PMEM pHeap, size_t dwSize, uint16_t alignment DBG
  // must allocate it all.
 					if( ( pc->dwSize - dwSize ) <= ( dwMin + CHUNK_SIZE + g.nMinAllocateSize ) )
 					{
-						pc->dwPad = (uint16_t)(dwPad + ( pc->dwSize - dwSize ));
+						pc->info.dwPad = (uint16_t)(dwPad + ( pc->dwSize - dwSize ));
 						UnlinkThing( pc );
-						pc->dwOwners = 1;
+						pc->info.dwOwners = 1;
  // successful allocation....
 						break;
 					}
@@ -31728,18 +24845,18 @@ POINTER HeapAllocateAlignedEx( PMEM pHeap, size_t dwSize, uint16_t alignment DBG
 						PHEAP_CHUNK next;
 						next = (PHEAP_CHUNK)( pc->byData + pc->dwSize );
 						pNew = (PHEAP_CHUNK)(pc->byData + dwSize);
-						pNew->dwPad = 0;
+						pNew->info.dwPad = 0;
 						pNew->dwSize = ((pc->dwSize - CHUNK_SIZE) - dwSize);
 #ifdef _DEBUG
 						if( pNew->dwSize > 0x80000000 )
 							DebugBreak();
 						if( pMem && !(pMem->dwFlags & HEAP_FLAG_NO_DEBUG) )
 						{
-							pNew->dwPad += MAGIC_SIZE * 2;
+							pNew->info.dwPad += MAGIC_SIZE * 2;
 						}
 						if( !g.bDisableDebug )
 						{
-							pNew->dwPad += MAGIC_SIZE;
+							pNew->info.dwPad += MAGIC_SIZE;
 							BLOCK_TAG( pNew ) = BLOCK_TAG_ID;
 						}
 						if( pMem && !(pMem->dwFlags & HEAP_FLAG_NO_DEBUG) )
@@ -31748,7 +24865,7 @@ POINTER HeapAllocateAlignedEx( PMEM pHeap, size_t dwSize, uint16_t alignment DBG
 							BLOCK_LINE( pNew ) = nLine;
 						}
 #endif
-						pc->dwPad = (uint16_t)dwPad;
+						pc->info.dwPad = (uint16_t)dwPad;
  // set old size?  this can wait until we have the block.
 						pc->dwSize = dwSize;
 						if( pc->dwSize & 0x80000000 )
@@ -31756,15 +24873,17 @@ POINTER HeapAllocateAlignedEx( PMEM pHeap, size_t dwSize, uint16_t alignment DBG
   // not beyond end of memory...
 						if( (uintptr_t)next - (uintptr_t)pCurMem < (uintptr_t)pCurMem->dwSize )
 							next->pPrior = pNew;
-						pNew->dwOwners = 0;
+						pNew->info.dwOwners = 0;
+//#ifdef _DEBUG
 						pNew->pRoot = pc->pRoot;
+//#endif
 						pNew->pPrior = pc;
 						// copy link...
 						if( ( pNew->next = pc->next ) )
 							pNew->next->me = &pNew->next;
 						*( pNew->me = pc->me ) = pNew;
   // set owned block.
-						pc->dwOwners = 1;
+						pc->info.dwOwners = 1;
  // successful allocation....
 						break;
 					}
@@ -31811,7 +24930,7 @@ POINTER HeapAllocateAlignedEx( PMEM pHeap, size_t dwSize, uint16_t alignment DBG
 		}
 		if( !(pMem->dwFlags & HEAP_FLAG_NO_DEBUG ) )
 		{
-			if( pc->dwPad < 2*sizeof( uintptr_t) )
+			if( pc->info.dwPad < 2*sizeof( uintptr_t) )
 				DebugBreak();
 			BLOCK_FILE(pc) = pFile;
 			BLOCK_LINE(pc) = nLine;
@@ -31831,15 +24950,13 @@ POINTER HeapAllocateAlignedEx( PMEM pHeap, size_t dwSize, uint16_t alignment DBG
 		//#endif
 		if( alignment && ((uintptr_t)pc->byData & ~mask ) ) {
 			uintptr_t retval = ((((uintptr_t)pc->byData) + (alignment - 1)) & mask );
- /*pc->alignemnt =*/
 			((uint16_t*)(retval - sizeof( uint32_t )))[0] = alignment;
- /*pc->to_chunk_start =*/
 			((uint16_t*)(retval - sizeof( uint32_t )))[1] = (uint16_t)(((((uintptr_t)pc->byData) + (alignment - 1)) & mask ) - (uintptr_t)pc->byData);
 			return (POINTER)retval;
 		}
 		else {
-			pc->alignment = 0;
-			pc->to_chunk_start = 0;
+			pc->info.alignment = 0;
+			pc->info.to_chunk_start = 0;
 			return pc->byData;
 		}
 	}
@@ -31967,12 +25084,12 @@ static void Bubble( PMEM pMem )
 		if( USE_CUSTOM_ALLOCER )
 		{
 			PCHUNK pc = (PCHUNK)(((uintptr_t)pData) - (((uint16_t*)pData)[-1] + offsetof( CHUNK, byData )));
-			return pc->dwSize - pc->dwPad;
+			return pc->dwSize - pc->info.dwPad;
 		}
 		else
 		{
 			PMALLOC_CHUNK pc = (PMALLOC_CHUNK)(((uintptr_t)pData) - MALLOC_CHUNK_SIZE(pData));
-			return pc->dwSize - pc->dwPad;
+			return pc->dwSize - pc->info.dwPad;
 		}
 	}
 	return 0;
@@ -32024,8 +25141,8 @@ POINTER ReleaseEx ( POINTER pData DBG_PASS )
 		{
 			//PMEM pMem = (PMEM)(pData - offsetof( MEM, pRoot ));
 			PMALLOC_CHUNK pc = (PMALLOC_CHUNK)(((uintptr_t)pData) - MALLOC_CHUNK_SIZE(pData) );
-			pc->dwOwners--;
-			if( !pc->dwOwners )
+			pc->info.dwOwners--;
+			if( !pc->info.dwOwners )
 			{
 				extern int  MemChk ( POINTER p, uintptr_t val, size_t sz );
 #ifndef NO_LOGGING
@@ -32083,15 +25200,18 @@ POINTER ReleaseEx ( POINTER pData DBG_PASS )
 #  endif
 #endif
 			pMem = GrabMem( pc->pRoot );
+#ifdef _DEBUG
 			if( !pMem )
 			{
-#ifndef NO_LOGGING
+#  ifndef NO_LOGGING
 				ll__lprintf( DBG_RELAY )( "ERROR: Chunk to free does not reference a heap!" );
-#endif
+#  endif
 				DebugDumpHeapMemEx( pc->pRoot, 1 );
 				DebugBreak();
 			}
+#endif
 			pMemSpace = FindSpace( pMem );
+#ifdef _DEBUG
 			while( pMemSpace && ( ( pCurMem = (PMEM)pMemSpace->pMem ),
 										(	( (uintptr_t)pData < (uintptr_t)pCurMem )
 										||  ( (uintptr_t)pData > ( (uintptr_t)pCurMem + pCurMem->dwSize ) ) )
@@ -32101,6 +25221,7 @@ POINTER ReleaseEx ( POINTER pData DBG_PASS )
 				Log( "ERROR: This block should have immediatly referenced it's correct heap!" );
 				pMemSpace = pMemSpace->next;
 			}
+#endif
 			if( !pMemSpace )
 			{
 #ifndef NO_LOGGING
@@ -32114,10 +25235,12 @@ POINTER ReleaseEx ( POINTER pData DBG_PASS )
 				DropMem( pMem );
 				return NULL;
 			}
+#ifdef _DEBUG
 			pCurMem = (PMEM)pMemSpace->pMem;
+#endif
 			if( pData && pc )
 			{
-				if( !pc->dwOwners )
+				if( !pc->info.dwOwners )
 				{
 #ifndef NO_LOGGING
 #  ifdef _DEBUG
@@ -32145,8 +25268,8 @@ POINTER ReleaseEx ( POINTER pData DBG_PASS )
 						DebugBreak();
 					}
 #endif
-				pc->dwOwners--;
-				if( pc->dwOwners )
+				pc->info.dwOwners--;
+				if( pc->info.dwOwners )
 				{
 #ifdef _DEBUG
 					if( !(pCurMem->dwFlags & HEAP_FLAG_NO_DEBUG ) )
@@ -32176,10 +25299,13 @@ POINTER ReleaseEx ( POINTER pData DBG_PASS )
 					if( !g.bDisableDebug )
 					{
 						BLOCK_TAG(pc)=BLOCK_TAG_ID;
-						MemSet( pc->byData, FREE_MEMORY_TAG, pc->dwSize - pc->dwPad );
+						MemSet( pc->byData, FREE_MEMORY_TAG, pc->dwSize - pc->info.dwPad );
 					}
 #endif
 					next = (PCHUNK)(pc->byData + pc->dwSize);
+#ifndef _DEBUG
+					pCurMem = (PMEM)pMemSpace->pMem;
+#endif
 					if( (nNext = (uintptr_t)next - (uintptr_t)pCurMem) >= pCurMem->dwSize )
 					{
 						// if next is NOT within valid memory...
@@ -32189,7 +25315,7 @@ POINTER ReleaseEx ( POINTER pData DBG_PASS )
 					if( ( pPrior = pc->pPrior ) )
 					{
  // prior physical is free
-						if( !pPrior->dwOwners )
+						if( !pPrior->info.dwOwners )
 						{
  // add this header plus size
 							pPrior->dwSize += CHUNK_SIZE + pc->dwSize;
@@ -32200,25 +25326,25 @@ POINTER ReleaseEx ( POINTER pData DBG_PASS )
 							}
 							if( !g.bDisableDebug )
 							{
-								pPrior->dwPad = MAGIC_SIZE;
+								pPrior->info.dwPad = MAGIC_SIZE;
 								if( !(pMem->dwFlags & HEAP_FLAG_NO_DEBUG) )
 								{
-									pPrior->dwPad += 2 * MAGIC_SIZE;
+									pPrior->info.dwPad += 2 * MAGIC_SIZE;
 									BLOCK_FILE( pPrior ) = pFile;
 									BLOCK_LINE( pPrior ) = nLine;
 								}
 								BLOCK_TAG( pPrior ) = BLOCK_TAG_ID;
-								MemSet( pPrior->byData, FREE_MEMORY_TAG, pPrior->dwSize - pPrior->dwPad );
+								MemSet( pPrior->byData, FREE_MEMORY_TAG, pPrior->dwSize - pPrior->info.dwPad );
 							}
 							else
 #endif
 							{
  // *** NEEDFILELINE ***
-								pPrior->dwPad = 0;
+								pPrior->info.dwPad = 0;
 #ifdef _DEBUG
 								if( !(pMem->dwFlags & HEAP_FLAG_NO_DEBUG) )
 								{
-									pPrior->dwPad += 2 * MAGIC_SIZE;
+									pPrior->info.dwPad += 2 * MAGIC_SIZE;
 									BLOCK_FILE( pPrior ) = pFile;
 									BLOCK_LINE( pPrior ) = nLine;
 								}
@@ -32236,7 +25362,7 @@ POINTER ReleaseEx ( POINTER pData DBG_PASS )
 					// begin checking NEXT physical memory block for conglomerating
 					if( next )
 					{
-						if( !next->dwOwners )
+						if( !next->info.dwOwners )
 						{
 							pc->dwSize += CHUNK_SIZE + next->dwSize;
 							if( bCollapsed )
@@ -32258,25 +25384,25 @@ POINTER ReleaseEx ( POINTER pData DBG_PASS )
 								//ll_lprintf( "Collapsing freed block with next block...%p %p", pc, next );
 							if( !g.bDisableDebug )
 							{
-								pc->dwPad = MAGIC_SIZE;
+								pc->info.dwPad = MAGIC_SIZE;
 								if( !(pMem->dwFlags & HEAP_FLAG_NO_DEBUG) )
 								{
-									pc->dwPad += 2 * MAGIC_SIZE;
+									pc->info.dwPad += 2 * MAGIC_SIZE;
 									BLOCK_FILE( pc ) = pFile;
 									BLOCK_LINE( pc ) = nLine;
 								}
 								BLOCK_TAG( pc ) = BLOCK_TAG_ID;
-								MemSet( pc->byData, FREE_MEMORY_TAG, pc->dwSize - pc->dwPad );
+								MemSet( pc->byData, FREE_MEMORY_TAG, pc->dwSize - pc->info.dwPad );
 							}
 							else
 #endif
 							{
- // *** NEEDFILELINE ***
-								pc->dwPad = 0;
+								pc->info.dwPad = 0;
 #ifdef _DEBUG
 								if( !(pMem->dwFlags & HEAP_FLAG_NO_DEBUG) )
 								{
-									pc->dwPad += 2 * MAGIC_SIZE;
+                            // *** NEEDFILELINE ***
+									pc->info.dwPad += 2 * MAGIC_SIZE;
 									BLOCK_FILE( pc ) = pFile;
 									BLOCK_LINE( pc ) = nLine;
 								}
@@ -32300,10 +25426,10 @@ POINTER ReleaseEx ( POINTER pData DBG_PASS )
 			}
 			Bubble( pMem );
 			DropMem( pMem );
-#ifdef _DEBUG
+#  ifdef _DEBUG
 			if( !g.bDisableAutoCheck )
 				GetHeapMemStatsEx(pMem, &dwFree,&dwAllocated,&dwBlocks,&dwFreeBlocks DBG_RELAY);
-#endif
+#  endif
 		}
 #endif
 	}
@@ -32322,7 +25448,7 @@ POINTER ReleaseEx ( POINTER pData DBG_PASS )
 			if( g.bLogAllocate && g.bLogAllocateWithHold )
 				_xlprintf( 2 DBG_RELAY)( "Hold	 : %p - %" _PTRSZVALfs " bytes",pc, pc->dwSize );
 #endif
-			pc->dwOwners++;
+			pc->info.dwOwners++;
 		}
 		else
 		{
@@ -32335,14 +25461,14 @@ POINTER ReleaseEx ( POINTER pData DBG_PASS )
 				_xlprintf( 2 DBG_RELAY)( "Hold	 : %p - %" _PTRSZVALfs " bytes",pc, pc->dwSize );
 			}
 #endif
-			if( !pc->dwOwners )
+			if( !pc->info.dwOwners )
 			{
 				ll_lprintf( "Held block has already been released!  too late to hold it!" );
 				DebugBreak();
 				DropMem( pMem );
 				return pData;
 			}
-			pc->dwOwners++;
+			pc->info.dwOwners++;
 			DropMem(pMem );
 #ifdef _DEBUG
 			if( !g.bDisableAutoCheck )
@@ -32388,7 +25514,7 @@ void  DebugDumpHeapMemEx ( PMEM pHeap, LOGICAL bVerbose )
 				Relinquish();
 #endif
 				nChunks++;
-				if( !pc->dwOwners )
+				if( !pc->info.dwOwners )
 				{
 					nTotalFree += pc->dwSize;
 #ifndef NO_LOGGING
@@ -32488,7 +25614,7 @@ void  DebugDumpHeapMemEx ( PMEM pHeap, LOGICAL bVerbose )
 			{
 				//Relinquish(); // allow debug log to work...
 				nChunks++;
-				if( !pc->dwOwners )
+				if( !pc->info.dwOwners )
 				{
 					nTotalFree += pc->dwSize;
 					snprintf( byDebug, sizeof(byDebug), "Free at %p size: %" cPTRSZVALfs "(%" cPTRSZVALfx ") Prior:%p NF:%p",
@@ -32593,9 +25719,9 @@ void  DebugDumpHeapMemEx ( PMEM pHeap, LOGICAL bVerbose )
 		// should be collapsed into this one...
 	pPrior = pc->pPrior;
  // not HELD by others... no way to update their pointers
-	if( ( pc->dwOwners == 1 ) &&
+	if( ( pc->info.dwOwners == 1 ) &&
 		pPrior &&
-		!pPrior->dwOwners )
+		!pPrior->info.dwOwners )
 	{
 		CHUNK Free = *pPrior;
 		CHUNK Allocated, *pNew;
@@ -32604,7 +25730,7 @@ void  DebugDumpHeapMemEx ( PMEM pHeap, LOGICAL bVerbose )
 		MemCpy( pPrior->byData, pc->byData, Allocated.dwSize );
 		pNew = (PCHUNK)(pPrior->byData + Allocated.dwSize);
 		pNew->dwSize = Free.dwSize;
-		pNew->dwOwners = 0;
+		pNew->info.dwOwners = 0;
  // now pAllocated...
 		pNew->pPrior = pPrior;
 		pNew->pRoot = Free.pRoot;
@@ -32620,7 +25746,7 @@ void  DebugDumpHeapMemEx ( PMEM pHeap, LOGICAL bVerbose )
 		}
 #endif
 		pPrior->dwSize = Allocated.dwSize;
-		pPrior->dwOwners = 1;
+		pPrior->info.dwOwners = 1;
 		pPrior->next = NULL;
 		pPrior->me = NULL;
 		// update NEXT NEXT real block...
@@ -32630,7 +25756,7 @@ void  DebugDumpHeapMemEx ( PMEM pHeap, LOGICAL bVerbose )
 			if( (((uintptr_t)next) - ((uintptr_t)pMem)) < (uintptr_t)pMem->dwSize )
 			{
  // if next is free.....
-				if( !next->dwOwners )
+				if( !next->info.dwOwners )
 				{
 					// consolidate...
 					if( (pNew->next = next->next) )
@@ -32682,7 +25808,7 @@ void  DebugDumpHeapMemEx ( PMEM pHeap, LOGICAL bVerbose )
 		while( (((uintptr_t)pc) - ((uintptr_t)pMemCheck)) < (uintptr_t)pMemCheck->dwSize )
 		{
 			nChunks++;
-			if( !pc->dwOwners )
+			if( !pc->info.dwOwners )
 			{
 				nFree += pc->dwSize;
 				nFreeChunks++;
@@ -32703,7 +25829,7 @@ void  DebugDumpHeapMemEx ( PMEM pHeap, LOGICAL bVerbose )
 						int minPad = MAGIC_SIZE;
 						if( pMem && !(pMem->dwFlags & HEAP_FLAG_NO_DEBUG) )
 							minPad += MAGIC_SIZE * 2;
-						if( ( pc->dwPad >= minPad ) && ( BLOCK_TAG(pc) != BLOCK_TAG_ID ) )
+						if( ( pc->info.dwPad >= minPad ) && ( BLOCK_TAG(pc) != BLOCK_TAG_ID ) )
 						{
 #ifndef NO_LOGGING
 							ll_lprintf( "memory block: %p(%p) %08" TAG_FORMAT_MODIFIER "x instead of %08" TAG_FORMAT_MODIFIER "x", pc, pc->byData, BLOCK_TAG(pc), BLOCK_TAG_ID );
@@ -32755,7 +25881,7 @@ void  DebugDumpHeapMemEx ( PMEM pHeap, LOGICAL bVerbose )
 		pc = pMemCheck->pFirstFree;
 		while( pc )
 		{
-			if( pc->dwOwners )
+			if( pc->info.dwOwners )
   // owned block is in free memory chain ! ?
 			{
 				ll_lprintf( "Owned block %p is in free memory chain!", pc );
@@ -33524,6 +26650,7 @@ using namespace sack::timers;
 #endif
 #define DO_LOGGING
 // display pause/resume support.
+#ifndef __NO_GUI__
 /* <link sack::image::render::PRENDERER, Render> provides a
    method to display images on a screen. It is the interface
    between memory images and the window desktop or frame buffer
@@ -34291,7 +27418,889 @@ Double quote	"""	222
 #    define KEY_Y   AKEYCODE_Y
 #    define KEY_Z   AKEYCODE_Z
 #  elif defined( __LINUX__ ) && !defined( __MAC__ ) && !defined( __ANDROID__ )
-#include <linux/input-event-codes.h>
+/* THis is a literal copy of bba013e1ca5e7150b42a1a1a1e852010d772edad / include/uapi/linux/input-event-codes.h
+  from github.  Other than this leading comment it is the original copy; this is included as a fallback for linux
+  systems (CentOS) which have a linux kernel older than 3.19; otherwise this would have been found in /usr/include/linux
+  This file will not be updated further.
+*/
+/* SPDX-License-Identifier: GPL-2.0-only WITH Linux-syscall-note */
+/*
+ * Input event codes
+ *
+ *    *** IMPORTANT ***
+ * This file is not only included from C-code but also from devicetree source
+ * files. As such this file MUST only contain comments and defines.
+ *
+ * Copyright (c) 1999-2002 Vojtech Pavlik
+ * Copyright (c) 2015 Hans de Goede <hdegoede@redhat.com>
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 as published by
+ * the Free Software Foundation.
+ */
+#ifndef _UAPI_INPUT_EVENT_CODES_H
+#define _UAPI_INPUT_EVENT_CODES_H
+/*
+ * Device properties and quirks
+ */
+#define INPUT_PROP_POINTER		0x00
+#define INPUT_PROP_DIRECT		0x01
+#define INPUT_PROP_BUTTONPAD		0x02
+#define INPUT_PROP_SEMI_MT		0x03
+#define INPUT_PROP_TOPBUTTONPAD		0x04
+#define INPUT_PROP_POINTING_STICK	0x05
+#define INPUT_PROP_ACCELEROMETER	0x06
+#define INPUT_PROP_MAX			0x1f
+#define INPUT_PROP_CNT			(INPUT_PROP_MAX + 1)
+/*
+ * Event types
+ */
+#define EV_SYN			0x00
+#define EV_KEY			0x01
+#define EV_REL			0x02
+#define EV_ABS			0x03
+#define EV_MSC			0x04
+#define EV_SW			0x05
+#define EV_LED			0x11
+#define EV_SND			0x12
+#define EV_REP			0x14
+#define EV_FF			0x15
+#define EV_PWR			0x16
+#define EV_FF_STATUS		0x17
+#define EV_MAX			0x1f
+#define EV_CNT			(EV_MAX+1)
+/*
+ * Synchronization events.
+ */
+#define SYN_REPORT		0
+#define SYN_CONFIG		1
+#define SYN_MT_REPORT		2
+#define SYN_DROPPED		3
+#define SYN_MAX			0xf
+#define SYN_CNT			(SYN_MAX+1)
+/*
+ * Keys and buttons
+ *
+ * Most of the keys/buttons are modeled after USB HUT 1.12
+ * (see http://www.usb.org/developers/hidpage).
+ * Abbreviations in the comments:
+ * AC - Application Control
+ * AL - Application Launch Button
+ * SC - System Control
+ */
+#define KEY_RESERVED		0
+#define KEY_ESC			1
+#define KEY_1			2
+#define KEY_2			3
+#define KEY_3			4
+#define KEY_4			5
+#define KEY_5			6
+#define KEY_6			7
+#define KEY_7			8
+#define KEY_8			9
+#define KEY_9			10
+#define KEY_0			11
+#define KEY_MINUS		12
+#define KEY_EQUAL		13
+#define KEY_BACKSPACE		14
+#define KEY_TAB			15
+#define KEY_Q			16
+#define KEY_W			17
+#define KEY_E			18
+#define KEY_R			19
+#define KEY_T			20
+#define KEY_Y			21
+#define KEY_U			22
+#define KEY_I			23
+#define KEY_O			24
+#define KEY_P			25
+#define KEY_LEFTBRACE		26
+#define KEY_RIGHTBRACE		27
+#define KEY_ENTER		28
+#define KEY_LEFTCTRL		29
+#define KEY_A			30
+#define KEY_S			31
+#define KEY_D			32
+#define KEY_F			33
+#define KEY_G			34
+#define KEY_H			35
+#define KEY_J			36
+#define KEY_K			37
+#define KEY_L			38
+#define KEY_SEMICOLON		39
+#define KEY_APOSTROPHE		40
+#define KEY_GRAVE		41
+#define KEY_LEFTSHIFT		42
+#define KEY_BACKSLASH		43
+#define KEY_Z			44
+#define KEY_X			45
+#define KEY_C			46
+#define KEY_V			47
+#define KEY_B			48
+#define KEY_N			49
+#define KEY_M			50
+#define KEY_COMMA		51
+#define KEY_DOT			52
+#define KEY_SLASH		53
+#define KEY_RIGHTSHIFT		54
+#define KEY_KPASTERISK		55
+#define KEY_LEFTALT		56
+#define KEY_SPACE		57
+#define KEY_CAPSLOCK		58
+#define KEY_F1			59
+#define KEY_F2			60
+#define KEY_F3			61
+#define KEY_F4			62
+#define KEY_F5			63
+#define KEY_F6			64
+#define KEY_F7			65
+#define KEY_F8			66
+#define KEY_F9			67
+#define KEY_F10			68
+#define KEY_NUMLOCK		69
+#define KEY_SCROLLLOCK		70
+#define KEY_KP7			71
+#define KEY_KP8			72
+#define KEY_KP9			73
+#define KEY_KPMINUS		74
+#define KEY_KP4			75
+#define KEY_KP5			76
+#define KEY_KP6			77
+#define KEY_KPPLUS		78
+#define KEY_KP1			79
+#define KEY_KP2			80
+#define KEY_KP3			81
+#define KEY_KP0			82
+#define KEY_KPDOT		83
+#define KEY_ZENKAKUHANKAKU	85
+#define KEY_102ND		86
+#define KEY_F11			87
+#define KEY_F12			88
+#define KEY_RO			89
+#define KEY_KATAKANA		90
+#define KEY_HIRAGANA		91
+#define KEY_HENKAN		92
+#define KEY_KATAKANAHIRAGANA	93
+#define KEY_MUHENKAN		94
+#define KEY_KPJPCOMMA		95
+#define KEY_KPENTER		96
+#define KEY_RIGHTCTRL		97
+#define KEY_KPSLASH		98
+#define KEY_SYSRQ		99
+#define KEY_RIGHTALT		100
+#define KEY_LINEFEED		101
+#define KEY_HOME		102
+#define KEY_UP			103
+#define KEY_PAGEUP		104
+#define KEY_LEFT		105
+#define KEY_RIGHT		106
+#define KEY_END			107
+#define KEY_DOWN		108
+#define KEY_PAGEDOWN		109
+#define KEY_INSERT		110
+#define KEY_DELETE		111
+#define KEY_MACRO		112
+#define KEY_MUTE		113
+#define KEY_VOLUMEDOWN		114
+#define KEY_VOLUMEUP		115
+#define KEY_POWER		116
+#define KEY_KPEQUAL		117
+#define KEY_KPPLUSMINUS		118
+#define KEY_PAUSE		119
+#define KEY_SCALE		120
+#define KEY_KPCOMMA		121
+#define KEY_HANGEUL		122
+#define KEY_HANGUEL		KEY_HANGEUL
+#define KEY_HANJA		123
+#define KEY_YEN			124
+#define KEY_LEFTMETA		125
+#define KEY_RIGHTMETA		126
+#define KEY_COMPOSE		127
+#define KEY_STOP		128
+#define KEY_AGAIN		129
+#define KEY_PROPS		130
+#define KEY_UNDO		131
+#define KEY_FRONT		132
+#define KEY_COPY		133
+#define KEY_OPEN		134
+#define KEY_PASTE		135
+#define KEY_FIND		136
+#define KEY_CUT			137
+#define KEY_HELP		138
+#define KEY_MENU		139
+#define KEY_CALC		140
+#define KEY_SETUP		141
+#define KEY_SLEEP		142
+#define KEY_WAKEUP		143
+#define KEY_FILE		144
+#define KEY_SENDFILE		145
+#define KEY_DELETEFILE		146
+#define KEY_XFER		147
+#define KEY_PROG1		148
+#define KEY_PROG2		149
+#define KEY_WWW			150
+#define KEY_MSDOS		151
+#define KEY_COFFEE		152
+#define KEY_SCREENLOCK		KEY_COFFEE
+#define KEY_ROTATE_DISPLAY	153
+#define KEY_DIRECTION		KEY_ROTATE_DISPLAY
+#define KEY_CYCLEWINDOWS	154
+#define KEY_MAIL		155
+#define KEY_BOOKMARKS		156
+#define KEY_COMPUTER		157
+#define KEY_BACK		158
+#define KEY_FORWARD		159
+#define KEY_CLOSECD		160
+#define KEY_EJECTCD		161
+#define KEY_EJECTCLOSECD	162
+#define KEY_NEXTSONG		163
+#define KEY_PLAYPAUSE		164
+#define KEY_PREVIOUSSONG	165
+#define KEY_STOPCD		166
+#define KEY_RECORD		167
+#define KEY_REWIND		168
+#define KEY_PHONE		169
+#define KEY_ISO			170
+#define KEY_CONFIG		171
+#define KEY_HOMEPAGE		172
+#define KEY_REFRESH		173
+#define KEY_EXIT		174
+#define KEY_MOVE		175
+#define KEY_EDIT		176
+#define KEY_SCROLLUP		177
+#define KEY_SCROLLDOWN		178
+#define KEY_KPLEFTPAREN		179
+#define KEY_KPRIGHTPAREN	180
+#define KEY_NEW			181
+#define KEY_REDO		182
+#define KEY_F13			183
+#define KEY_F14			184
+#define KEY_F15			185
+#define KEY_F16			186
+#define KEY_F17			187
+#define KEY_F18			188
+#define KEY_F19			189
+#define KEY_F20			190
+#define KEY_F21			191
+#define KEY_F22			192
+#define KEY_F23			193
+#define KEY_F24			194
+#define KEY_PLAYCD		200
+#define KEY_PAUSECD		201
+#define KEY_PROG3		202
+#define KEY_PROG4		203
+#define KEY_DASHBOARD		204
+#define KEY_SUSPEND		205
+#define KEY_CLOSE		206
+#define KEY_PLAY		207
+#define KEY_FASTFORWARD		208
+#define KEY_BASSBOOST		209
+#define KEY_PRINT		210
+#define KEY_HP			211
+#define KEY_CAMERA		212
+#define KEY_SOUND		213
+#define KEY_QUESTION		214
+#define KEY_EMAIL		215
+#define KEY_CHAT		216
+#define KEY_SEARCH		217
+#define KEY_CONNECT		218
+#define KEY_FINANCE		219
+#define KEY_SPORT		220
+#define KEY_SHOP		221
+#define KEY_ALTERASE		222
+#define KEY_CANCEL		223
+#define KEY_BRIGHTNESSDOWN	224
+#define KEY_BRIGHTNESSUP	225
+#define KEY_MEDIA		226
+#define KEY_SWITCHVIDEOMODE	227
+	/* Cycle between available video
+					   outputs (Monitor/LCD/TV-out/etc) */
+#define KEY_KBDILLUMTOGGLE	228
+#define KEY_KBDILLUMDOWN	229
+#define KEY_KBDILLUMUP		230
+#define KEY_SEND		231
+#define KEY_REPLY		232
+#define KEY_FORWARDMAIL		233
+#define KEY_SAVE		234
+#define KEY_DOCUMENTS		235
+#define KEY_BATTERY		236
+#define KEY_BLUETOOTH		237
+#define KEY_WLAN		238
+#define KEY_UWB			239
+#define KEY_UNKNOWN		240
+#define KEY_VIDEO_NEXT		241
+#define KEY_VIDEO_PREV		242
+#define KEY_BRIGHTNESS_CYCLE	243
+#define KEY_BRIGHTNESS_AUTO	244
+	/* Set Auto Brightness: manual
+					  brightness control is off,
+					  rely on ambient */
+#define KEY_BRIGHTNESS_ZERO	KEY_BRIGHTNESS_AUTO
+#define KEY_DISPLAY_OFF		245
+#define KEY_WWAN		246
+#define KEY_WIMAX		KEY_WWAN
+#define KEY_RFKILL		247
+#define KEY_MICMUTE		248
+/* Code 255 is reserved for special needs of AT keyboard driver */
+#define BTN_MISC		0x100
+#define BTN_0			0x100
+#define BTN_1			0x101
+#define BTN_2			0x102
+#define BTN_3			0x103
+#define BTN_4			0x104
+#define BTN_5			0x105
+#define BTN_6			0x106
+#define BTN_7			0x107
+#define BTN_8			0x108
+#define BTN_9			0x109
+#define BTN_MOUSE		0x110
+#define BTN_LEFT		0x110
+#define BTN_RIGHT		0x111
+#define BTN_MIDDLE		0x112
+#define BTN_SIDE		0x113
+#define BTN_EXTRA		0x114
+#define BTN_FORWARD		0x115
+#define BTN_BACK		0x116
+#define BTN_TASK		0x117
+#define BTN_JOYSTICK		0x120
+#define BTN_TRIGGER		0x120
+#define BTN_THUMB		0x121
+#define BTN_THUMB2		0x122
+#define BTN_TOP			0x123
+#define BTN_TOP2		0x124
+#define BTN_PINKIE		0x125
+#define BTN_BASE		0x126
+#define BTN_BASE2		0x127
+#define BTN_BASE3		0x128
+#define BTN_BASE4		0x129
+#define BTN_BASE5		0x12a
+#define BTN_BASE6		0x12b
+#define BTN_DEAD		0x12f
+#define BTN_GAMEPAD		0x130
+#define BTN_SOUTH		0x130
+#define BTN_A			BTN_SOUTH
+#define BTN_EAST		0x131
+#define BTN_B			BTN_EAST
+#define BTN_C			0x132
+#define BTN_NORTH		0x133
+#define BTN_X			BTN_NORTH
+#define BTN_WEST		0x134
+#define BTN_Y			BTN_WEST
+#define BTN_Z			0x135
+#define BTN_TL			0x136
+#define BTN_TR			0x137
+#define BTN_TL2			0x138
+#define BTN_TR2			0x139
+#define BTN_SELECT		0x13a
+#define BTN_START		0x13b
+#define BTN_MODE		0x13c
+#define BTN_THUMBL		0x13d
+#define BTN_THUMBR		0x13e
+#define BTN_DIGI		0x140
+#define BTN_TOOL_PEN		0x140
+#define BTN_TOOL_RUBBER		0x141
+#define BTN_TOOL_BRUSH		0x142
+#define BTN_TOOL_PENCIL		0x143
+#define BTN_TOOL_AIRBRUSH	0x144
+#define BTN_TOOL_FINGER		0x145
+#define BTN_TOOL_MOUSE		0x146
+#define BTN_TOOL_LENS		0x147
+#define BTN_TOOL_QUINTTAP	0x148
+#define BTN_STYLUS3		0x149
+#define BTN_TOUCH		0x14a
+#define BTN_STYLUS		0x14b
+#define BTN_STYLUS2		0x14c
+#define BTN_TOOL_DOUBLETAP	0x14d
+#define BTN_TOOL_TRIPLETAP	0x14e
+#define BTN_TOOL_QUADTAP	0x14f
+#define BTN_WHEEL		0x150
+#define BTN_GEAR_DOWN		0x150
+#define BTN_GEAR_UP		0x151
+#define KEY_OK			0x160
+#define KEY_SELECT		0x161
+#define KEY_GOTO		0x162
+#define KEY_CLEAR		0x163
+#define KEY_POWER2		0x164
+#define KEY_OPTION		0x165
+#define KEY_INFO		0x166
+#define KEY_TIME		0x167
+#define KEY_VENDOR		0x168
+#define KEY_ARCHIVE		0x169
+#define KEY_PROGRAM		0x16a
+#define KEY_CHANNEL		0x16b
+#define KEY_FAVORITES		0x16c
+#define KEY_EPG			0x16d
+#define KEY_PVR			0x16e
+#define KEY_MHP			0x16f
+#define KEY_LANGUAGE		0x170
+#define KEY_TITLE		0x171
+#define KEY_SUBTITLE		0x172
+#define KEY_ANGLE		0x173
+#define KEY_FULL_SCREEN		0x174
+#define KEY_ZOOM		KEY_FULL_SCREEN
+#define KEY_MODE		0x175
+#define KEY_KEYBOARD		0x176
+#define KEY_ASPECT_RATIO	0x177
+#define KEY_SCREEN		KEY_ASPECT_RATIO
+#define KEY_PC			0x178
+#define KEY_TV			0x179
+#define KEY_TV2			0x17a
+#define KEY_VCR			0x17b
+#define KEY_VCR2		0x17c
+#define KEY_SAT			0x17d
+#define KEY_SAT2		0x17e
+#define KEY_CD			0x17f
+#define KEY_TAPE		0x180
+#define KEY_RADIO		0x181
+#define KEY_TUNER		0x182
+#define KEY_PLAYER		0x183
+#define KEY_TEXT		0x184
+#define KEY_DVD			0x185
+#define KEY_AUX			0x186
+#define KEY_MP3			0x187
+#define KEY_AUDIO		0x188
+#define KEY_VIDEO		0x189
+#define KEY_DIRECTORY		0x18a
+#define KEY_LIST		0x18b
+#define KEY_MEMO		0x18c
+#define KEY_CALENDAR		0x18d
+#define KEY_RED			0x18e
+#define KEY_GREEN		0x18f
+#define KEY_YELLOW		0x190
+#define KEY_BLUE		0x191
+#define KEY_CHANNELUP		0x192
+#define KEY_CHANNELDOWN		0x193
+#define KEY_FIRST		0x194
+#define KEY_LAST		0x195
+#define KEY_AB			0x196
+#define KEY_NEXT		0x197
+#define KEY_RESTART		0x198
+#define KEY_SLOW		0x199
+#define KEY_SHUFFLE		0x19a
+#define KEY_BREAK		0x19b
+#define KEY_PREVIOUS		0x19c
+#define KEY_DIGITS		0x19d
+#define KEY_TEEN		0x19e
+#define KEY_TWEN		0x19f
+#define KEY_VIDEOPHONE		0x1a0
+#define KEY_GAMES		0x1a1
+#define KEY_ZOOMIN		0x1a2
+#define KEY_ZOOMOUT		0x1a3
+#define KEY_ZOOMRESET		0x1a4
+#define KEY_WORDPROCESSOR	0x1a5
+#define KEY_EDITOR		0x1a6
+#define KEY_SPREADSHEET		0x1a7
+#define KEY_GRAPHICSEDITOR	0x1a8
+#define KEY_PRESENTATION	0x1a9
+#define KEY_DATABASE		0x1aa
+#define KEY_NEWS		0x1ab
+#define KEY_VOICEMAIL		0x1ac
+#define KEY_ADDRESSBOOK		0x1ad
+#define KEY_MESSENGER		0x1ae
+#define KEY_DISPLAYTOGGLE	0x1af
+#define KEY_BRIGHTNESS_TOGGLE	KEY_DISPLAYTOGGLE
+#define KEY_SPELLCHECK		0x1b0
+#define KEY_LOGOFF		0x1b1
+#define KEY_DOLLAR		0x1b2
+#define KEY_EURO		0x1b3
+#define KEY_FRAMEBACK		0x1b4
+#define KEY_FRAMEFORWARD	0x1b5
+#define KEY_CONTEXT_MENU	0x1b6
+#define KEY_MEDIA_REPEAT	0x1b7
+#define KEY_10CHANNELSUP	0x1b8
+#define KEY_10CHANNELSDOWN	0x1b9
+#define KEY_IMAGES		0x1ba
+#define KEY_NOTIFICATION_CENTER	0x1bc
+#define KEY_PICKUP_PHONE	0x1bd
+#define KEY_HANGUP_PHONE	0x1be
+#define KEY_DEL_EOL		0x1c0
+#define KEY_DEL_EOS		0x1c1
+#define KEY_INS_LINE		0x1c2
+#define KEY_DEL_LINE		0x1c3
+#define KEY_FN			0x1d0
+#define KEY_FN_ESC		0x1d1
+#define KEY_FN_F1		0x1d2
+#define KEY_FN_F2		0x1d3
+#define KEY_FN_F3		0x1d4
+#define KEY_FN_F4		0x1d5
+#define KEY_FN_F5		0x1d6
+#define KEY_FN_F6		0x1d7
+#define KEY_FN_F7		0x1d8
+#define KEY_FN_F8		0x1d9
+#define KEY_FN_F9		0x1da
+#define KEY_FN_F10		0x1db
+#define KEY_FN_F11		0x1dc
+#define KEY_FN_F12		0x1dd
+#define KEY_FN_1		0x1de
+#define KEY_FN_2		0x1df
+#define KEY_FN_D		0x1e0
+#define KEY_FN_E		0x1e1
+#define KEY_FN_F		0x1e2
+#define KEY_FN_S		0x1e3
+#define KEY_FN_B		0x1e4
+#define KEY_FN_RIGHT_SHIFT	0x1e5
+#define KEY_BRL_DOT1		0x1f1
+#define KEY_BRL_DOT2		0x1f2
+#define KEY_BRL_DOT3		0x1f3
+#define KEY_BRL_DOT4		0x1f4
+#define KEY_BRL_DOT5		0x1f5
+#define KEY_BRL_DOT6		0x1f6
+#define KEY_BRL_DOT7		0x1f7
+#define KEY_BRL_DOT8		0x1f8
+#define KEY_BRL_DOT9		0x1f9
+#define KEY_BRL_DOT10		0x1fa
+#define KEY_NUMERIC_0		0x200
+#define KEY_NUMERIC_1		0x201
+#define KEY_NUMERIC_2		0x202
+#define KEY_NUMERIC_3		0x203
+#define KEY_NUMERIC_4		0x204
+#define KEY_NUMERIC_5		0x205
+#define KEY_NUMERIC_6		0x206
+#define KEY_NUMERIC_7		0x207
+#define KEY_NUMERIC_8		0x208
+#define KEY_NUMERIC_9		0x209
+#define KEY_NUMERIC_STAR	0x20a
+#define KEY_NUMERIC_POUND	0x20b
+#define KEY_NUMERIC_A		0x20c
+#define KEY_NUMERIC_B		0x20d
+#define KEY_NUMERIC_C		0x20e
+#define KEY_NUMERIC_D		0x20f
+#define KEY_CAMERA_FOCUS	0x210
+#define KEY_WPS_BUTTON		0x211
+#define KEY_TOUCHPAD_TOGGLE	0x212
+#define KEY_TOUCHPAD_ON		0x213
+#define KEY_TOUCHPAD_OFF	0x214
+#define KEY_CAMERA_ZOOMIN	0x215
+#define KEY_CAMERA_ZOOMOUT	0x216
+#define KEY_CAMERA_UP		0x217
+#define KEY_CAMERA_DOWN		0x218
+#define KEY_CAMERA_LEFT		0x219
+#define KEY_CAMERA_RIGHT	0x21a
+#define KEY_ATTENDANT_ON	0x21b
+#define KEY_ATTENDANT_OFF	0x21c
+#define KEY_ATTENDANT_TOGGLE	0x21d
+#define KEY_LIGHTS_TOGGLE	0x21e
+#define BTN_DPAD_UP		0x220
+#define BTN_DPAD_DOWN		0x221
+#define BTN_DPAD_LEFT		0x222
+#define BTN_DPAD_RIGHT		0x223
+#define KEY_ALS_TOGGLE		0x230
+#define KEY_ROTATE_LOCK_TOGGLE	0x231
+#define KEY_BUTTONCONFIG		0x240
+#define KEY_TASKMANAGER		0x241
+#define KEY_JOURNAL		0x242
+#define KEY_CONTROLPANEL		0x243
+#define KEY_APPSELECT		0x244
+#define KEY_SCREENSAVER		0x245
+#define KEY_VOICECOMMAND		0x246
+#define KEY_ASSISTANT		0x247
+#define KEY_KBD_LAYOUT_NEXT	0x248
+#define KEY_BRIGHTNESS_MIN		0x250
+#define KEY_BRIGHTNESS_MAX		0x251
+#define KEY_KBDINPUTASSIST_PREV		0x260
+#define KEY_KBDINPUTASSIST_NEXT		0x261
+#define KEY_KBDINPUTASSIST_PREVGROUP		0x262
+#define KEY_KBDINPUTASSIST_NEXTGROUP		0x263
+#define KEY_KBDINPUTASSIST_ACCEPT		0x264
+#define KEY_KBDINPUTASSIST_CANCEL		0x265
+/* Diagonal movement keys */
+#define KEY_RIGHT_UP			0x266
+#define KEY_RIGHT_DOWN			0x267
+#define KEY_LEFT_UP			0x268
+#define KEY_LEFT_DOWN			0x269
+#define KEY_ROOT_MENU			0x26a
+/* Show Top Menu of the Media (e.g. DVD) */
+#define KEY_MEDIA_TOP_MENU		0x26b
+#define KEY_NUMERIC_11			0x26c
+#define KEY_NUMERIC_12			0x26d
+/*
+ * Toggle Audio Description: refers to an audio service that helps blind and
+ * visually impaired consumers understand the action in a program. Note: in
+ * some countries this is referred to as "Video Description".
+ */
+#define KEY_AUDIO_DESC			0x26e
+#define KEY_3D_MODE			0x26f
+#define KEY_NEXT_FAVORITE		0x270
+#define KEY_STOP_RECORD			0x271
+#define KEY_PAUSE_RECORD		0x272
+#define KEY_VOD				0x273
+#define KEY_UNMUTE			0x274
+#define KEY_FASTREVERSE			0x275
+#define KEY_SLOWREVERSE			0x276
+/*
+ * Control a data application associated with the currently viewed channel,
+ * e.g. teletext or data broadcast application (MHEG, MHP, HbbTV, etc.)
+ */
+#define KEY_DATA			0x277
+#define KEY_ONSCREEN_KEYBOARD		0x278
+/* Electronic privacy screen control */
+#define KEY_PRIVACY_SCREEN_TOGGLE	0x279
+/* Select an area of screen to be copied */
+#define KEY_SELECTIVE_SCREENSHOT	0x27a
+/*
+ * Some keyboards have keys which do not have a defined meaning, these keys
+ * are intended to be programmed / bound to macros by the user. For most
+ * keyboards with these macro-keys the key-sequence to inject, or action to
+ * take, is all handled by software on the host side. So from the kernel's
+ * point of view these are just normal keys.
+ *
+ * The KEY_MACRO# codes below are intended for such keys, which may be labeled
+ * e.g. G1-G18, or S1 - S30. The KEY_MACRO# codes MUST NOT be used for keys
+ * where the marking on the key does indicate a defined meaning / purpose.
+ *
+ * The KEY_MACRO# codes MUST also NOT be used as fallback for when no existing
+ * KEY_FOO define matches the marking / purpose. In this case a new KEY_FOO
+ * define MUST be added.
+ */
+#define KEY_MACRO1			0x290
+#define KEY_MACRO2			0x291
+#define KEY_MACRO3			0x292
+#define KEY_MACRO4			0x293
+#define KEY_MACRO5			0x294
+#define KEY_MACRO6			0x295
+#define KEY_MACRO7			0x296
+#define KEY_MACRO8			0x297
+#define KEY_MACRO9			0x298
+#define KEY_MACRO10			0x299
+#define KEY_MACRO11			0x29a
+#define KEY_MACRO12			0x29b
+#define KEY_MACRO13			0x29c
+#define KEY_MACRO14			0x29d
+#define KEY_MACRO15			0x29e
+#define KEY_MACRO16			0x29f
+#define KEY_MACRO17			0x2a0
+#define KEY_MACRO18			0x2a1
+#define KEY_MACRO19			0x2a2
+#define KEY_MACRO20			0x2a3
+#define KEY_MACRO21			0x2a4
+#define KEY_MACRO22			0x2a5
+#define KEY_MACRO23			0x2a6
+#define KEY_MACRO24			0x2a7
+#define KEY_MACRO25			0x2a8
+#define KEY_MACRO26			0x2a9
+#define KEY_MACRO27			0x2aa
+#define KEY_MACRO28			0x2ab
+#define KEY_MACRO29			0x2ac
+#define KEY_MACRO30			0x2ad
+/*
+ * Some keyboards with the macro-keys described above have some extra keys
+ * for controlling the host-side software responsible for the macro handling:
+ * -A macro recording start/stop key. Note that not all keyboards which emit
+ *  KEY_MACRO_RECORD_START will also emit KEY_MACRO_RECORD_STOP if
+ *  KEY_MACRO_RECORD_STOP is not advertised, then KEY_MACRO_RECORD_START
+ *  should be interpreted as a recording start/stop toggle;
+ * -Keys for switching between different macro (pre)sets, either a key for
+ *  cycling through the configured presets or keys to directly select a preset.
+ */
+#define KEY_MACRO_RECORD_START		0x2b0
+#define KEY_MACRO_RECORD_STOP		0x2b1
+#define KEY_MACRO_PRESET_CYCLE		0x2b2
+#define KEY_MACRO_PRESET1		0x2b3
+#define KEY_MACRO_PRESET2		0x2b4
+#define KEY_MACRO_PRESET3		0x2b5
+/*
+ * Some keyboards have a buildin LCD panel where the contents are controlled
+ * by the host. Often these have a number of keys directly below the LCD
+ * intended for controlling a menu shown on the LCD. These keys often don't
+ * have any labeling so we just name them KEY_KBD_LCD_MENU#
+ */
+#define KEY_KBD_LCD_MENU1		0x2b8
+#define KEY_KBD_LCD_MENU2		0x2b9
+#define KEY_KBD_LCD_MENU3		0x2ba
+#define KEY_KBD_LCD_MENU4		0x2bb
+#define KEY_KBD_LCD_MENU5		0x2bc
+#define BTN_TRIGGER_HAPPY		0x2c0
+#define BTN_TRIGGER_HAPPY1		0x2c0
+#define BTN_TRIGGER_HAPPY2		0x2c1
+#define BTN_TRIGGER_HAPPY3		0x2c2
+#define BTN_TRIGGER_HAPPY4		0x2c3
+#define BTN_TRIGGER_HAPPY5		0x2c4
+#define BTN_TRIGGER_HAPPY6		0x2c5
+#define BTN_TRIGGER_HAPPY7		0x2c6
+#define BTN_TRIGGER_HAPPY8		0x2c7
+#define BTN_TRIGGER_HAPPY9		0x2c8
+#define BTN_TRIGGER_HAPPY10		0x2c9
+#define BTN_TRIGGER_HAPPY11		0x2ca
+#define BTN_TRIGGER_HAPPY12		0x2cb
+#define BTN_TRIGGER_HAPPY13		0x2cc
+#define BTN_TRIGGER_HAPPY14		0x2cd
+#define BTN_TRIGGER_HAPPY15		0x2ce
+#define BTN_TRIGGER_HAPPY16		0x2cf
+#define BTN_TRIGGER_HAPPY17		0x2d0
+#define BTN_TRIGGER_HAPPY18		0x2d1
+#define BTN_TRIGGER_HAPPY19		0x2d2
+#define BTN_TRIGGER_HAPPY20		0x2d3
+#define BTN_TRIGGER_HAPPY21		0x2d4
+#define BTN_TRIGGER_HAPPY22		0x2d5
+#define BTN_TRIGGER_HAPPY23		0x2d6
+#define BTN_TRIGGER_HAPPY24		0x2d7
+#define BTN_TRIGGER_HAPPY25		0x2d8
+#define BTN_TRIGGER_HAPPY26		0x2d9
+#define BTN_TRIGGER_HAPPY27		0x2da
+#define BTN_TRIGGER_HAPPY28		0x2db
+#define BTN_TRIGGER_HAPPY29		0x2dc
+#define BTN_TRIGGER_HAPPY30		0x2dd
+#define BTN_TRIGGER_HAPPY31		0x2de
+#define BTN_TRIGGER_HAPPY32		0x2df
+#define BTN_TRIGGER_HAPPY33		0x2e0
+#define BTN_TRIGGER_HAPPY34		0x2e1
+#define BTN_TRIGGER_HAPPY35		0x2e2
+#define BTN_TRIGGER_HAPPY36		0x2e3
+#define BTN_TRIGGER_HAPPY37		0x2e4
+#define BTN_TRIGGER_HAPPY38		0x2e5
+#define BTN_TRIGGER_HAPPY39		0x2e6
+#define BTN_TRIGGER_HAPPY40		0x2e7
+/* We avoid low common keys in module aliases so they don't get huge. */
+#define KEY_MIN_INTERESTING	KEY_MUTE
+#define KEY_MAX			0x2ff
+#define KEY_CNT			(KEY_MAX+1)
+/*
+ * Relative axes
+ */
+#define REL_X			0x00
+#define REL_Y			0x01
+#define REL_Z			0x02
+#define REL_RX			0x03
+#define REL_RY			0x04
+#define REL_RZ			0x05
+#define REL_HWHEEL		0x06
+#define REL_DIAL		0x07
+#define REL_WHEEL		0x08
+#define REL_MISC		0x09
+/*
+ * 0x0a is reserved and should not be used in input drivers.
+ * It was used by HID as REL_MISC+1 and userspace needs to detect if
+ * the next REL_* event is correct or is just REL_MISC + n.
+ * We define here REL_RESERVED so userspace can rely on it and detect
+ * the situation described above.
+ */
+#define REL_RESERVED		0x0a
+#define REL_WHEEL_HI_RES	0x0b
+#define REL_HWHEEL_HI_RES	0x0c
+#define REL_MAX			0x0f
+#define REL_CNT			(REL_MAX+1)
+/*
+ * Absolute axes
+ */
+#define ABS_X			0x00
+#define ABS_Y			0x01
+#define ABS_Z			0x02
+#define ABS_RX			0x03
+#define ABS_RY			0x04
+#define ABS_RZ			0x05
+#define ABS_THROTTLE		0x06
+#define ABS_RUDDER		0x07
+#define ABS_WHEEL		0x08
+#define ABS_GAS			0x09
+#define ABS_BRAKE		0x0a
+#define ABS_HAT0X		0x10
+#define ABS_HAT0Y		0x11
+#define ABS_HAT1X		0x12
+#define ABS_HAT1Y		0x13
+#define ABS_HAT2X		0x14
+#define ABS_HAT2Y		0x15
+#define ABS_HAT3X		0x16
+#define ABS_HAT3Y		0x17
+#define ABS_PRESSURE		0x18
+#define ABS_DISTANCE		0x19
+#define ABS_TILT_X		0x1a
+#define ABS_TILT_Y		0x1b
+#define ABS_TOOL_WIDTH		0x1c
+#define ABS_VOLUME		0x20
+#define ABS_MISC		0x28
+/*
+ * 0x2e is reserved and should not be used in input drivers.
+ * It was used by HID as ABS_MISC+6 and userspace needs to detect if
+ * the next ABS_* event is correct or is just ABS_MISC + n.
+ * We define here ABS_RESERVED so userspace can rely on it and detect
+ * the situation described above.
+ */
+#define ABS_RESERVED		0x2e
+#define ABS_MT_SLOT		0x2f
+#define ABS_MT_TOUCH_MAJOR	0x30
+#define ABS_MT_TOUCH_MINOR	0x31
+#define ABS_MT_WIDTH_MAJOR	0x32
+#define ABS_MT_WIDTH_MINOR	0x33
+#define ABS_MT_ORIENTATION	0x34
+#define ABS_MT_POSITION_X	0x35
+#define ABS_MT_POSITION_Y	0x36
+#define ABS_MT_TOOL_TYPE	0x37
+#define ABS_MT_BLOB_ID		0x38
+#define ABS_MT_TRACKING_ID	0x39
+#define ABS_MT_PRESSURE		0x3a
+#define ABS_MT_DISTANCE		0x3b
+#define ABS_MT_TOOL_X		0x3c
+#define ABS_MT_TOOL_Y		0x3d
+#define ABS_MAX			0x3f
+#define ABS_CNT			(ABS_MAX+1)
+/*
+ * Switch events
+ */
+#define SW_LID			0x00
+#define SW_TABLET_MODE		0x01
+#define SW_HEADPHONE_INSERT	0x02
+#define SW_RFKILL_ALL		0x03
+  /* rfkill master switch, type "any"
+					 set = radio enabled */
+#define SW_RADIO		SW_RFKILL_ALL
+#define SW_MICROPHONE_INSERT	0x04
+#define SW_DOCK			0x05
+#define SW_LINEOUT_INSERT	0x06
+#define SW_JACK_PHYSICAL_INSERT 0x07
+#define SW_VIDEOOUT_INSERT	0x08
+#define SW_CAMERA_LENS_COVER	0x09
+#define SW_KEYPAD_SLIDE		0x0a
+#define SW_FRONT_PROXIMITY	0x0b
+#define SW_ROTATE_LOCK		0x0c
+#define SW_LINEIN_INSERT	0x0d
+#define SW_MUTE_DEVICE		0x0e
+#define SW_PEN_INSERTED		0x0f
+#define SW_MACHINE_COVER	0x10
+#define SW_MAX			0x10
+#define SW_CNT			(SW_MAX+1)
+/*
+ * Misc events
+ */
+#define MSC_SERIAL		0x00
+#define MSC_PULSELED		0x01
+#define MSC_GESTURE		0x02
+#define MSC_RAW			0x03
+#define MSC_SCAN		0x04
+#define MSC_TIMESTAMP		0x05
+#define MSC_MAX			0x07
+#define MSC_CNT			(MSC_MAX+1)
+/*
+ * LEDs
+ */
+#define LED_NUML		0x00
+#define LED_CAPSL		0x01
+#define LED_SCROLLL		0x02
+#define LED_COMPOSE		0x03
+#define LED_KANA		0x04
+#define LED_SLEEP		0x05
+#define LED_SUSPEND		0x06
+#define LED_MUTE		0x07
+#define LED_MISC		0x08
+#define LED_MAIL		0x09
+#define LED_CHARGING		0x0a
+#define LED_MAX			0x0f
+#define LED_CNT			(LED_MAX+1)
+/*
+ * Autorepeat values
+ */
+#define REP_DELAY		0x00
+#define REP_PERIOD		0x01
+#define REP_MAX			0x01
+#define REP_CNT			(REP_MAX+1)
+/*
+ * Sounds
+ */
+#define SND_CLICK		0x00
+#define SND_BELL		0x01
+#define SND_TONE		0x02
+#define SND_MAX			0x07
+#define SND_CNT			(SND_MAX+1)
+#endif
 #undef BTN_START
 #define KEY_ESCAPE KEY_ESC
 #define KEY_PGDN KEY_PAGEDOWN
@@ -39572,6 +33581,7 @@ RENDER_NAMESPACE_END
 // Revision 1.10  2003/03/25 08:38:11  panther
 // Add logging
 //
+#endif
 #ifndef _SHARED_MEMORY_LIBRARY
 #if !defined( MEMORY_STRUCT_DEFINED ) || defined( DEFINE_MEMORY_STRUCT )
 //#define ENABLE_NATIVE_MALLOC_PROTECTOR
@@ -39642,50 +33652,52 @@ namespace sack {
 #    pragma pack (push, 1)
 #  endif
 // custom allocer, use heap_chunk_tag
-PREFIX_PACKED struct malloc_chunk_tag
+struct malloc_chunk_tag
 {
-   // if 0 - block is free
-	uint16_t dwOwners;
-      // extra bytes 4/12 typical, sometimes pad untill next. (alignment extra bytes)
-	uint16_t dwPad;
-#ifdef __64__
-	uint32_t pad;
-#endif
-  // limited to allocating 4 billion bytes...
 	uintptr_t dwSize;
 #ifdef ENABLE_NATIVE_MALLOC_PROTECTOR
 	uint32_t LeadProtect[2];
 #endif
+	PREFIX_PACKED struct {
+   // if 0 - block is free
+		uint16_t dwOwners;
+      // extra bytes 4/12 typical, sometimes pad untill next. (alignment extra bytes)
+		uint16_t dwPad;
  // this is additional to subtract to get back to start (aligned allocate)
-	uint16_t alignment;
+		uint16_t alignment;
  // this is additional to subtract to get back to start (aligned allocate)
-	uint16_t to_chunk_start;
+		uint16_t to_chunk_start;
+	} PACKED info;
  // uint8_t is the smallest valid datatype could be _0
 	uint8_t byData[1];
-} PACKED;
-PREFIX_PACKED struct heap_chunk_tag
+};
+struct heap_chunk_tag
 {
+ // *next, **me; &next is also &this block.
 	DeclareLink( struct heap_chunk_tag );
-            // if 0 - block is free
-	uint16_t dwOwners;
-   // extra bytes 4/12 typical, sometimes pad untill next.
-	uint16_t dwPad;
 	// which is < ( CHUNK_SIZE + nMinAllocate )
 	// real size is then dwSize - dwPad.
 	// this is actually where the end of block tag(s) should begin!
-  // limited to allocating 4 billion bytes...
 	uintptr_t dwSize;
          // save some math backwards...
 	struct heap_chunk_tag *pPrior;
+   // needed for release to find free linked list head
   // pointer to master allocation struct (pMEM)
-	struct memory_block_tag * pRoot;
+	struct memory_block_tag *pRoot;
+	PREFIX_PACKED struct {
+            // if 0 - block is free
+		uint16_t dwOwners;
+   // extra bytes 4/12 typical, sometimes pad untill next.
+		uint16_t dwPad;
  // this is additional to subtract to get back to start (aligned allocate)
-	uint16_t alignment;
+		uint16_t alignment;
+      // to_chunk_start is computed from byData offset by alignment minus a uin16_t.
  // this is additional to subtract to get back to start (aligned allocate)
-	uint16_t to_chunk_start;
+		uint16_t to_chunk_start;
+	} PACKED info;
  // uint8_t is the smallest valid datatype could be _0
 	uint8_t byData[1];
-} PACKED;
+};
 // a chunk of memory in a heap space, heaps are also tracked, so extents
 // of that space are known, therefore one can identify a heap chunk
 // from a non-heap (malloc?) chunk.
@@ -41814,10 +35826,11 @@ void  RescheduleTimer( uint32_t ID )
 	LeaveCriticalSec( &globalTimerData.csGrab );
 }
 //--------------------------------------------------------------------------
-#ifndef __NO_INTERFACE_SUPPORT__
-#  ifndef TARGETNAME
-#    define TARGETNAME ""
-#  endif
+#if !defined( __NO_GUI__ )
+#  ifndef __NO_INTERFACE_SUPPORT__
+#    ifndef TARGETNAME
+#      define TARGETNAME ""
+#    endif
 static void OnDisplayPause( "@Internal Timers" TARGETNAME )( void )
 {
 	globalTimerData.flags.bHaltTimers = 1;
@@ -41829,6 +35842,7 @@ static void OnDisplayResume( "@Internal Timers" TARGETNAME)( void )
 	if( globalTimerData.pTimerThread )
 		WakeThread( globalTimerData.pTimerThread );
 }
+#  endif
 #endif
 //--------------------------------------------------------------------------
 void  ChangeTimerEx( uint32_t ID, uint32_t initial, uint32_t frequency )
@@ -42724,19 +36738,22 @@ int  MakePath ( CTEXTSTR path )
  // make directory with full umask permissions
 	if( ( status = mkdir( path, -1 ) ) < 0 )
 	{
-		TEXTSTR tmppath = StrDup( path );
-		TEXTSTR last = (TEXTSTR)pathrchr( tmppath );
-		if( last )
-		{
-			last[0] = 0;
-			if( MakePath( tmppath ) ) {
-				status = mkdir( path, -1 );
-				if( status < 0 )
-					if( EEXIST == errno )
-						status = 0;
+		if( errno == EEXIST ) status = 0;
+		else {
+			TEXTSTR tmppath = StrDup( path );
+			TEXTSTR last = (TEXTSTR)pathrchr( tmppath );
+			if( last )
+			{
+				last[0] = 0;
+				if( tmppath[0] && MakePath( tmppath ) ) {
+					status = mkdir( path, -1 );
+					if( status < 0 )
+						if( EEXIST == errno )
+							status = 0;
+				}
 			}
+			Release( tmppath );
 		}
-		Release( tmppath );
 	}
 	if( status < 0 )
 		if( EEXIST == errno )
@@ -42992,7 +37009,7 @@ static void threadInit( void ) {
 }
 static void LocalInit( void )
 {
-#ifndef __STATIC_GLOBAL__
+#ifndef __STATIC_GLOBALS__
 	if( !winfile_local )
 		SimpleRegisterAndCreateGlobal( winfile_local );
 #endif
@@ -43193,11 +37210,11 @@ TEXTSTR ExpandPathVariable( CTEXTSTR path )
 TEXTSTR ExpandPathEx( CTEXTSTR path, struct file_system_interface* fsi )
 {
 	TEXTSTR tmp_path = NULL;
+	LocalInit();
 #if !defined( __FILESYS_NO_FILE_LOGGING__ )
 	if( ( *winfile_local ).flags.bLogOpenClose )
 		lprintf( "input path is [%s]", path );
 #endif
-	LocalInit();
 	if( path ) {
 		if( !fsi && !IsAbsolutePath( path ) ) {
 			if( ( path[0] == '.' ) && ( ( path[1] == 0 ) || ( path[1] == '/' ) || ( path[1] == '\\' ) ) ) {
@@ -44720,7 +38737,7 @@ size_t GetSizeofFile( TEXTCHAR * name, uint32_t * unused )
 		return size;
 	}
 	else
-		return (size_t)-1;
+		return 0;
 #endif
 }
 //-------------------------------------------------------------------------
@@ -44752,7 +38769,7 @@ uint32_t GetFileTimeAndSize( CTEXTSTR name
 		return size;
 	}
 	else
-		return (uint32_t)-1;
+		return 0;
 #else
 	HANDLE hFile = CreateFile( name, 0, 0, NULL, OPEN_EXISTING, 0, NULL );
 	uint32_t extra_size;
@@ -44770,7 +38787,7 @@ uint32_t GetFileTimeAndSize( CTEXTSTR name
 		return size;
 	}
 	else
-		return (uint32_t)-1;
+		return 0;
 #endif
 }
 struct file_system_interface* sack_get_filesystem_interface( CTEXTSTR name )
@@ -44966,7 +38983,8 @@ static int CPROC sack_filesys_unlink( uintptr_t psv, const char* filename ) {
 	okay = !unlink( filename );
 #endif
 	if( !okay ) {
-		file->delete_on_close = 1;
+		if( file )
+			file->delete_on_close = 1;
 	}
 	return okay;
 }
@@ -45132,7 +39150,7 @@ static	size_t CPROC sack_filesys_find_get_size( struct find_cursor* _cursor ) {
 		}
 		if( S_ISREG( s.st_mode ) )
 			return s.st_size;
-		return -1;
+		return 0;
 	}
 #endif
 	return 0;
@@ -45782,7 +39800,7 @@ struct find_cursor *GetScanFileCursor( void *pInfo ) {
 	//lprintf( "Search in %s for %s   %d %d", base?base:"(NULL)", mask?mask:"(*)", (*pInfo)?((PMFD)*pInfo)->scanning_mount:0, (*pInfo)?((PMFD)*pInfo)->single_mount:0 );
 	if( !*pInfo || begin_sub_path || ((PMFD)*pInfo)->new_mount )
 	{
-		TEXTCHAR findmask[256];
+		TEXTCHAR findmask[4096+32];
 		wchar_t findmaskw[256];
 		pData = (PMFD)(*pInfo);
 		if( !pData )
@@ -46154,7 +40172,7 @@ getnext:
 		if( flags & SFF_SUBCURSE )
 		{
 			//int ofs = 0;
-			TEXTCHAR tmpbuf[MAX_PATH_NAME];
+			TEXTCHAR tmpbuf[MAX_PATH_NAME + 512];
 			if( flags & SFF_NAMEONLY )
 			{
 				// even in name only - need to have this full buffer for subcurse.
@@ -47785,7 +41803,8 @@ void  SetSystemLog ( enum syslog_types type, const void *data )
 		FILE *close_file = (*syslog_local).file;
   // reset this first, in case logging closing.
 		(*syslog_local).file = NULL;
-		sack_fclose( close_file );
+      if( !( close_file == stderr || close_file == stdout ) )
+			sack_fclose( close_file );
 	}
 	if( type == SYSLOG_FILE )
 	{
@@ -51400,6 +45419,10 @@ typedef struct handle_info_tag
    int       handle;
 #endif
 } HANDLEINFO, *PHANDLEINFO;
+struct taskOutputStruct {
+	PTASK_INFO task;
+   LOGICAL stdErr;
+};
 //typedef void (CPROC*TaskEnd)(uintptr_t, struct task_info_tag *task_ended);
 struct task_info_tag {
 	struct {
@@ -51411,21 +45434,25 @@ struct task_info_tag {
 	} flags;
 	TaskEnd EndNotice;
 	TaskOutput OutputEvent;
+	TaskOutput OutputEvent2;
 	uintptr_t psvEnd;
 	HANDLEINFO hStdIn;
 	HANDLEINFO hStdOut;
+	HANDLEINFO hStdErr;
 	volatile PTHREAD pOutputThread;
-	//HANDLEINFO hStdErr;
+	volatile PTHREAD pOutputThread2;
+	struct taskOutputStruct args1;
+   struct taskOutputStruct args2;
 #if defined(WIN32)
 	HANDLE hReadOut, hWriteOut;
-	//HANDLE hReadErr, hWriteErr;
+	HANDLE hReadErr, hWriteErr;
 	HANDLE hReadIn, hWriteIn;
 	STARTUPINFO si;
 	PROCESS_INFORMATION pi;
    DWORD exitcode;
 #elif defined( __LINUX__ )
    int hReadOut, hWriteOut;
-   //HANDLE hReadErr, hWriteErr;
+   int hReadErr, hWriteErr;
 	int hReadIn, hWriteIn;
    pid_t pid;
    uint32_t exitcode;
@@ -52164,6 +46191,8 @@ LOGICAL CPROC StopProgram( PTASK_INFO task )
 	task->flags.process_ended = 1;
 	if( task->pOutputThread )
 		WakeThread( task->pOutputThread );
+	if( task->pOutputThread2 )
+		WakeThread( task->pOutputThread2 );
 #ifdef WIN32
 #ifndef UNDER_CE
 	int error;
@@ -52341,33 +46370,46 @@ uintptr_t CPROC WaitForTaskEnd( PTHREAD pThread )
 					// maybe the read wasn't queued yet....
 					//lprintf( "Failed to cancel IO on thread %d %d", GetThreadHandle( task->hStdOut.hThread ), GetLastError() );
 				}
+				if( !MyCancelSynchronousIo( GetThreadHandle( task->hStdErr.hThread ) ) )
+				{
+					// maybe the read wasn't queued yet....
+					//lprintf( "Failed to cancel IO on thread %d %d", GetThreadHandle( task->hStdOut.hThread ), GetLastError() );
+				}
 			}
 			else
 			{
 				static BOOL (WINAPI *MyCancelIoEx)( HANDLE hFile,LPOVERLAPPED ) = (BOOL(WINAPI*)(HANDLE,LPOVERLAPPED))-1;
 				if( (uintptr_t)MyCancelIoEx == (uintptr_t)-1 )
 					MyCancelIoEx = (BOOL(WINAPI*)(HANDLE,LPOVERLAPPED))LoadFunction( "kernel32.dll", "CancelIoEx" );
-				if( MyCancelIoEx )
+				if( MyCancelIoEx ) {
 					MyCancelIoEx( task->hStdOut.handle, NULL );
-				else
-				{
+						MyCancelIoEx( task->hStdErr.handle, NULL );
+				} else {
 					DWORD written;
-					//lprintf( "really? You're still using xp or less?" );
+					// if I can't cancel, send something oob to wake up the thread.
 					task->flags.bSentIoTerminator = 1;
 					if( !WriteFile( task->hWriteOut, "\x04", 1, &written, NULL ) )
-					lprintf( "write pipe failed! %d", GetLastError() );
-					//lprintf( "Pipe write was %d", written );
+						lprintf( "write stdout pipe failed! %d", GetLastError() );
+					if( !WriteFile( task->hWriteErr, "\x04", 1, &written, NULL ) )
+						lprintf( "write stderr pip failed! %d", GetLastError() );
 				}
 			}
 #endif
 		}
 		// wait for task last output before notification of end of task.
-		while( task->pOutputThread )
+		while( task->pOutputThread || task->pOutputThread2 )
 			Relinquish();
 		if( task->EndNotice )
 			task->EndNotice( task->psvEnd, task );
 #if defined( WIN32 )
 		//lprintf( "Closing process and thread handles." );
+		CloseHandle( task->hReadIn );
+		CloseHandle( task->hReadOut );
+		CloseHandle( task->hReadErr );
+		CloseHandle( task->hWriteIn );
+		CloseHandle( task->hWriteOut );
+		CloseHandle( task->hWriteErr );
+		//lprintf( "Closing process handle %p", task->pi.hProcess );
 		if( task->pi.hProcess )
 		{
 			CloseHandle( task->pi.hProcess );
@@ -53632,12 +47674,18 @@ static int DumpErrorEx( DBG_VOIDPASS )
 extern uintptr_t CPROC WaitForTaskEnd( PTHREAD pThread );
 static uintptr_t CPROC HandleTaskOutput(PTHREAD thread )
 {
-	PTASK_INFO task = (PTASK_INFO)GetThreadParam( thread );
+	struct taskOutputStruct* taskParams = (struct taskOutputStruct*)GetThreadParam( thread );
+  // (PTASK_INFO)GetThreadParam( thread );
+	PTASK_INFO task = taskParams->task;
+	if( task )
 	{
-		task->pOutputThread = thread;
+		if( taskParams->stdErr )
+			task->pOutputThread2 = thread;
+		else
+			task->pOutputThread = thread;
 		// read input from task, montiro close and dispatch TaskEnd Notification also.
 		{
-			PHANDLEINFO phi = &task->hStdOut;
+			PHANDLEINFO phi = taskParams->stdErr?&task->hStdErr:&task->hStdOut;
 			PTEXT pInput = SegCreate( 4096 );
 			int done, lastloop;
 			Hold( task );
@@ -53690,14 +47738,21 @@ static uintptr_t CPROC HandleTaskOutput(PTHREAD thread )
 								}
 							}
 							//lprintf( "result %d", dwRead );
-							GetText( pInput )[dwRead] = 0;
-							pInput->data.size = dwRead;
-							//LogBinary( GetText( pInput ), GetTextSize( pInput ) );
-							if( task->OutputEvent )
-							{
-								task->OutputEvent( task->psvEnd, task, GetText( pInput ), GetTextSize( pInput ) );
+							if( dwRead < 4096 ) {
+								GetText( pInput )[dwRead] = 0;
+								pInput->data.size = dwRead;
+								//LogBinary( GetText( pInput ), GetTextSize( pInput ) );
+								if( taskParams->stdErr ) {
+									if( task->OutputEvent2 )
+										task->OutputEvent2( task->psvEnd, task, GetText( pInput ), GetTextSize( pInput ) );
+									else if( task->OutputEvent )
+										task->OutputEvent( task->psvEnd, task, GetText( pInput ), GetTextSize( pInput ) );
+								} else {
+									if( task->OutputEvent )
+										task->OutputEvent( task->psvEnd, task, GetText( pInput ), GetTextSize( pInput ) );
+								}
+								pInput->data.size = 4096;
 							}
-							pInput->data.size = 4096;
 #ifdef _WIN32
 						}
 						else
@@ -53731,43 +47786,38 @@ static uintptr_t CPROC HandleTaskOutput(PTHREAD thread )
 				}
 			}
 			while( !lastloop );
-			//lprintf( "Exited read loop" );
-#ifdef _DEBUG
-			if( lastloop )
-			{
-				//DECLTEXT( msg, "Ending system thread because of process exit!" );
-				//EnqueLink( phi->pdp->&ps->Command->Output, &msg );
-			}
-			else
-			{
-				//DECLTEXT( msg, "Guess we exited from broken pipe" );
-				//EnqueLink( phi->pdp->&ps->Command->Output, &msg );
-			}
-#endif
 			LineRelease( pInput );
 #ifdef _WIN32
+			/*
 			CloseHandle( task->hReadIn );
 			CloseHandle( task->hReadOut );
+			CloseHandle( task->hReadErr );
 			CloseHandle( task->hWriteIn );
 			CloseHandle( task->hWriteOut );
+			CloseHandle( task->hWriteErr );
+			*/
 			//lprintf( "Closing process handle %p", task->pi.hProcess );
 			phi->hThread = 0;
 #else
 			//close( phi->handle );
 			close( task->hStdIn.pair[1] );
 			close( task->hStdOut.pair[0] );
-			//close( task->hStdErr.pair[0] );
+			close( task->hStdErr.pair[0] );
 #define INVALID_HANDLE_VALUE -1
 #endif
 			if( phi->handle == task->hStdIn.handle )
 				task->hStdIn.handle = INVALID_HANDLE_VALUE;
 			phi->handle = INVALID_HANDLE_VALUE;
-			task->pOutputThread = NULL;
+			if( taskParams->stdErr )
+				task->pOutputThread2 = NULL;
+			else
+				task->pOutputThread = NULL;
 			Release( task );
 			//WakeAThread( phi->pdp->common.Owner );
 			return 0xdead;
 		}
 	}
+	return 0;
 }
 //--------------------------------------------------------------------------
 static int FixHandles( PTASK_INFO task )
@@ -53887,14 +47937,25 @@ void LoadReadExe( PTASK_INFO task, uintptr_t base )
 #ifdef WIN32
 extern HANDLE GetImpersonationToken( void );
 #endif
-// Run a program completely detached from the current process
-// it runs independantly.  Program does not suspend until it completes.
-// No way at all to know if the program works or fails.
 SYSTEM_PROC( PTASK_INFO, LaunchPeerProgramExx )( CTEXTSTR program, CTEXTSTR path, PCTEXTSTR args
 															  , int flags
 															  , TaskOutput OutputHandler
 															  , TaskEnd EndNotice
 															  , uintptr_t psv
+																DBG_PASS
+															  ){
+   return LaunchPeerProgram_v2( program, path, args, flags, OutputHandler, NULL, EndNotice, psv, NULL DBG_RELAY );
+}
+// Run a program completely detached from the current process
+// it runs independantly.  Program does not suspend until it completes.
+// No way at all to know if the program works or fails.
+SYSTEM_PROC( PTASK_INFO, LaunchPeerProgram_v2 )( CTEXTSTR program, CTEXTSTR path, PCTEXTSTR args
+															  , int flags
+															  , TaskOutput OutputHandler
+															  , TaskOutput OutputHandler2
+															  , TaskEnd EndNotice
+															  , uintptr_t psv
+															  , PLIST list
 																DBG_PASS
 															  )
 {
@@ -53903,6 +47964,13 @@ SYSTEM_PROC( PTASK_INFO, LaunchPeerProgramExx )( CTEXTSTR program, CTEXTSTR path
 // = ExpandPath( program );
 	TEXTSTR expanded_path;
 	TEXTSTR expanded_working_path = path ? ExpandPath( path ) : NULL;
+	{
+		INDEX idx;
+      struct environmentValue* val;
+		LIST_FORALL( list, idx, struct environmentValue*, val ) {
+         OSALOT_SetEnvironmentVariable( val->field, val->value );
+		}
+	}
 	if( path ) {
 		path = ExpandPath( path );
 		if( IsAbsolutePath( program ) ) {
@@ -54009,6 +48077,7 @@ SYSTEM_PROC( PTASK_INFO, LaunchPeerProgramExx )( CTEXTSTR program, CTEXTSTR path
 		}
 		*/
 		task->OutputEvent = OutputHandler;
+		task->OutputEvent2 = OutputHandler2;
 		if( OutputHandler )
 		{
 			SECURITY_ATTRIBUTES sa;
@@ -54016,10 +48085,10 @@ SYSTEM_PROC( PTASK_INFO, LaunchPeerProgramExx )( CTEXTSTR program, CTEXTSTR path
 			sa.lpSecurityDescriptor = NULL;
 			sa.nLength = sizeof( sa );
 			CreatePipe( &task->hReadOut, &task->hWriteOut, &sa, 0 );
-			//CreatePipe( &hReadErr, &hWriteErr, &sa, 0 );
+			CreatePipe( &task->hReadErr, &task->hWriteErr, &sa, 0 );
 			CreatePipe( &task->hReadIn, &task->hWriteIn, &sa, 0 );
 			task->si.hStdInput = task->hReadIn;
-			task->si.hStdError = task->hWriteOut;
+			task->si.hStdError = task->hWriteErr;
 			task->si.hStdOutput = task->hWriteOut;
 			task->si.dwFlags |= STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
 			if( !( flags & LPP_OPTION_DO_NOT_HIDE ) )
@@ -54038,7 +48107,6 @@ SYSTEM_PROC( PTASK_INFO, LaunchPeerProgramExx )( CTEXTSTR program, CTEXTSTR path
 		{
 			HINSTANCE hShellProcess = 0;
 			int success = 0;
-#ifdef WIN32
 			if( flags & LPP_OPTION_IMPERSONATE_EXPLORER )
 			{
 				HANDLE hExplorer = GetImpersonationToken();
@@ -54083,7 +48151,6 @@ SYSTEM_PROC( PTASK_INFO, LaunchPeerProgramExx )( CTEXTSTR program, CTEXTSTR path
 				CloseHandle( hExplorer );
 			}
 			else
-#endif
 			{
 				if( ( (!task->flags.runas_root) && ( CreateProcess( program
 										, GetText( cmdline )
@@ -54140,16 +48207,27 @@ SYSTEM_PROC( PTASK_INFO, LaunchPeerProgramExx )( CTEXTSTR program, CTEXTSTR path
 #endif
 				if( OutputHandler )
 				{
-					task->hStdIn.handle	 = task->hWriteIn;
-					task->hStdIn.pLine	 = NULL;
+					task->hStdIn.handle	  = task->hWriteIn;
+					task->hStdIn.pLine	  = NULL;
 					//task->hStdIn.pdp		 = pdp;
 					task->hStdIn.hThread  = 0;
 					task->hStdIn.bNextNew = TRUE;
-					task->hStdOut.handle	  = task->hReadOut;
-					task->hStdOut.pLine	  = NULL;
+					task->hStdOut.handle   = task->hReadOut;
+					task->hStdOut.pLine	   = NULL;
 					//task->hStdOut.pdp		  = pdp;
 					task->hStdOut.bNextNew = TRUE;
-					task->hStdOut.hThread  = ThreadTo( HandleTaskOutput, (uintptr_t)task );
+					task->args1.task       = task;
+					task->args1.stdErr     = FALSE;
+					task->hStdOut.hThread  = ThreadTo( HandleTaskOutput, (uintptr_t)&task->args1 );
+					{
+						task->hStdErr.handle   = task->hReadErr;
+						task->hStdErr.pLine	   = NULL;
+						//task->hStdOut.pdp		  = pdp;
+						task->hStdErr.bNextNew = TRUE;
+						task->args2.task       = task;
+						task->args2.stdErr     = TRUE;
+						task->hStdErr.hThread  = ThreadTo( HandleTaskOutput, (uintptr_t)&task->args2 );
+					}
 					ThreadTo( WaitForTaskEnd, (uintptr_t)task );
 				}
 				else
@@ -54187,9 +48265,15 @@ SYSTEM_PROC( PTASK_INFO, LaunchPeerProgramExx )( CTEXTSTR program, CTEXTSTR path
 			TEXTCHAR saved_path[256];
 			task = (PTASK_INFO)Allocate( sizeof( TASK_INFO ) );
 			MemSet( task, 0, sizeof( TASK_INFO ) );
+			//task->flags.log_input = TRUE;
 			task->psvEnd = psv;
 			task->EndNotice = EndNotice;
 			task->OutputEvent = OutputHandler;
+			task->OutputEvent2 = OutputHandler2;
+			task->args1.task       = task;
+			task->args1.stdErr     = FALSE;
+			task->args2.task       = task;
+			task->args2.stdErr     = TRUE;
 			if( OutputHandler )
 			{
 				if( pipe(task->hStdIn.pair) < 0 ) {
@@ -54206,6 +48290,16 @@ SYSTEM_PROC( PTASK_INFO, LaunchPeerProgramExx )( CTEXTSTR program, CTEXTSTR path
 					return NULL;
 				}
 				task->hStdOut.handle = task->hStdOut.pair[0];
+				if( OutputHandler2 ) {
+					if( pipe(task->hStdErr.pair) < 0 ) {
+						if (expanded_working_path)
+							Release( expanded_working_path );
+						Release( expanded_path );
+						return NULL;
+					}
+					task->hStdErr.handle = task->hStdErr.pair[0];
+				} else
+					task->hStdErr.handle =task->hStdOut.pair[0];
 			}
 			// always have to thread to taskend so waitpid can clean zombies.
 			ThreadTo( WaitForTaskEnd, (uintptr_t)task );
@@ -54237,7 +48331,7 @@ SYSTEM_PROC( PTASK_INFO, LaunchPeerProgramExx )( CTEXTSTR program, CTEXTSTR path
 				if( OutputHandler ) {
 					dup2( task->hStdIn.pair[0], 0 );
 					dup2( task->hStdOut.pair[1], 1 );
-					dup2( task->hStdOut.pair[1], 2 );
+					dup2( task->hStdErr.pair[1], 2 );
 				}
 				DispelDeadstart();
 				execve( _program, (char *const*)args, environ );
@@ -54259,6 +48353,8 @@ SYSTEM_PROC( PTASK_INFO, LaunchPeerProgramExx )( CTEXTSTR program, CTEXTSTR path
 				if( OutputHandler ) {
 					close( task->hStdIn.pair[0] );
 					close( task->hStdOut.pair[1] );
+					if( OutputHandler2 )
+						close( task->hStdErr.pair[1] );
 				}
 				//close( task->hWriteErr );
 				close( 0 );
@@ -54277,10 +48373,16 @@ SYSTEM_PROC( PTASK_INFO, LaunchPeerProgramExx )( CTEXTSTR program, CTEXTSTR path
 				if( OutputHandler ) {
 					close( task->hStdIn.pair[0] );
 					close( task->hStdOut.pair[1] );
+					if( OutputHandler2 )
+						close( task->hStdErr.pair[1] );
 				}
 			}
 			if( OutputHandler )
-				ThreadTo( HandleTaskOutput, (uintptr_t)task );
+				ThreadTo( HandleTaskOutput, (uintptr_t)&task->args1 );
+ // only if it was opened as a separate handle...
+			if( OutputHandler2 ) {
+				ThreadTo( HandleTaskOutput, (uintptr_t)&task->args2 );
+			}
 			task->pid = newpid;
 			// how can I know if the command failed?
 			// well I can't - but the user's callback will be invoked
@@ -55642,7 +49744,7 @@ PROCREG_PROC( LOGICAL, RegisterFunctionExx )( PCLASSROOT root
 #ifdef _DEBUG
 					CTEXTSTR file = GetRegisteredValue( (CTEXTSTR)&oldname->tree, "Source File" );
 					int line = (int)(uintptr_t)GetRegisteredValueEx( (CTEXTSTR)&oldname->tree, "Source Line", TRUE );
-					lprintf( "Duplicate function registration, it's the same address as before... %s(%d) %s(%d) %s %s", file, line, pFile, nLine, name_class, public_name );
+					lprintf( "Duplicate function registration, it's the same address as before... %s(%d) %s(%d) %s %s", file, line, pFile, nLine, (char*)name_class, public_name );
 #endif
 				}else
 				{
@@ -57671,6 +51773,7 @@ namespace objStore {
 	struct sack_vfs_os_volume;
 	struct sack_vfs_os_file;
 	struct sack_vfs_os_find_info;
+	struct sack_vfs_os_time_cursor;
 	/* thse should probably be moved to sack_vfs_os.h being file system specific extensions. */
 	enum sack_object_store_file_system_file_ioctl_ops {
   // psvInstance should be a file handle pass (char*, size_t length )
@@ -57694,12 +51797,22 @@ namespace objStore {
 		SOSFSFIO_REMOVE_REFERENCE_BY,
  // set file preferred block size intead of automatic
 		SOSFSFIO_SET_BLOCKSIZE,
+ // set the last updated time of a file
+		SOSFSFIO_SET_TIME,
+ // get the list of all times associated with a file
+		SOSFSFIO_GET_TIMES,
+ // get the last(current) time of the file
+		SOSFSFIO_GET_TIME,
 	};
 	enum sack_object_store_file_system_system_ioctl_ops {
  // get the resulting storage ID.  (Move ID creation into low level driver)
 		SOSFSSIO_STORE_OBJECT,
 		SOSFSSIO_PATCH_OBJECT,
 		SOSFSSIO_LOAD_OBJECT,
+		SOSFSSIO_OPEN_VERSION,
+		SOSFSSIO_NEW_VERSION,
+		SOSFSSIO_OPEN_TIMELINE,
+		SOSFSSIO_READ_TIMELINE,
 		//SFSIO_GET_OBJECT_ID, // get the resulting storage ID.  (Move ID creation into low level driver)
 	};
 // returns a pointer to and array of buffers.
@@ -57806,7 +51919,12 @@ namespace objStore {
 //     sack_vfs_os_ioctl_patch_object( vol, oldResult, sizeof( oldResult )-1, data, sizeof( data ), seal, sizeof( seal ), result, 44 );
 // }
 #define sack_vfs_os_ioctl_patch_sealed_object( vol, objId,objIdLen, obj,objlen, seal,seallen, result, resultlen ) sack_fs_ioctl( vol, SOSFSSIO_PATCH_OBJECT, FALSE, FALSE, objId, objIdLen, authId, authIdLen, obj, objlen, seal, seallen, result, resultlen )
-#define sack_vfs_os_ioctl_create_index( file, indexName ) sack_vfs_os_fs_ioctl( file, SOSFSFIO_CREATE_INDEX, indexName )
+#define sack_vfs_os_ioctl_create_index( file, indexName ) sack_vfs_os_file_ioctl( file, SOSFSFIO_CREATE_INDEX, indexName )
+#define sack_vfs_os_ioctl_get_times( file, timeArray,tzArray,timeCount ) sack_vfs_os_file_ioctl( file, SOSFSFIO_GET_TIMES, timeArray,tzArray,timeCount )
+// get the last write timeline index of a file
+//     sack_vfs_os_ioctl_get_time( file )
+#define sack_vfs_os_ioctl_get_time( file ) sack_vfs_os_file_ioctl( file, SOSFSFIO_GET_TIME )
+#define sack_vfs_os_ioctl_set_time( file, timestamp,tz )            sack_vfs_os_file_ioctl( file, SOSFSFIO_SETTIME, timestamp,tz )
 // open a volume at the specified pathname.
 // if the volume does not exist, will create it.
 // if the volume does exist, a quick validity check is made on it, and then the result is opened
@@ -57825,6 +51943,10 @@ SACK_VFS_PROC void sack_vfs_os_flush_volume( struct sack_vfs_os_volume* vol, LOG
 // returns NULL if failure.  (permission denied to the file, or invalid filename passed, could be out of space... )
 // if the keys are NULL same as load_volume.
 SACK_VFS_PROC struct sack_vfs_os_volume * sack_vfs_os_load_crypt_volume( CTEXTSTR filepath, uintptr_t version, CTEXTSTR userkey, CTEXTSTR devkey, struct file_system_mounted_interface* mount );
+// diagnostics can use this open; flags may control whether the journal is processed automatically on open.
+// this flag can be used to disable journal replay.
+#define SACK_VFS_LOAD_FLAG_NO_REPLAY 1
+SACK_VFS_PROC struct sack_vfs_os_volume* sack_vfs_os_load_volume_v2( int flags, CTEXTSTR filepath, uintptr_t version, CTEXTSTR userkey, CTEXTSTR devkey, struct file_system_mounted_interface* mount );
 // pass some memory and a memory length of the memory to use as a volume.
 // if userkey and/or devkey are not NULL the memory is assume to be encrypted with those keys.
 // the space is opened as readonly; write accesses/expanding operations will fail.
@@ -57888,7 +52010,16 @@ SACK_VFS_PROC char * sack_vfs_os_find_get_name( struct sack_vfs_os_find_info *in
 // get file information for the file at the current cursor position...
 SACK_VFS_PROC size_t sack_vfs_os_find_get_size( struct sack_vfs_os_find_info *info );
 // get times for the object in storage.
-SACK_VFS_PROC LOGICAL sack_vfs_os_get_times( struct sack_vfs_os_file* file, uint64_t** timeArray, size_t* timeCount );
+SACK_VFS_PROC LOGICAL sack_vfs_os_get_times( struct sack_vfs_os_file* file, uint64_t** timeArray, int8_t**tzArray, size_t* timeCount );
+// set last time for object in storage. (overwrites current tick used to update on write)
+SACK_VFS_PROC LOGICAL sack_vfs_os_set_time( struct sack_vfs_os_file* file, uint64_t time, int8_t tz );
+SACK_VFS_PROC struct sack_vfs_os_time_cursor* sack_vfs_os_get_time_cursor( struct sack_vfs_os_volume* vol );
+SACK_VFS_PROC LOGICAL sack_vfs_os_read_time_cursor( struct sack_vfs_os_time_cursor* cursor, int step, uint64_t time_, uint64_t* entry, const char** filename, uint64_t* result_timestamp, int8_t* result_tz, const char** buffer, size_t* size );
+// force disabling any further writes to the volue; for unit-testing journal recovery.
+SACK_VFS_PROC LOGICAL sack_vfs_os_halt( struct sack_vfs_os_volume* volume );
+// generate a report about the internal structure of the volue...
+// journal parameters, timeline length?  File Entries?
+SACK_VFS_PROC LOGICAL sack_vfs_os_analyze( struct sack_vfs_os_volume* volume );
 #ifdef __cplusplus
 }
 #endif
@@ -58012,7 +52143,8 @@ SACK_VFS_NAMESPACE
 #define BLOCK_BYTE_SHIFT (BLOCK_SIZE_BITS)
 #define BLOCK_SIZE (1<<BLOCK_SIZE_BITS)
 #define BLOCK_SMALL_SIZE     256
-#define DIR_BLOCK_SIZE      4096
+#define DIR_BLOCK_SIZE_BITS   12
+#define DIR_BLOCK_SIZE      (1<<DIR_BLOCK_SIZE_BITS)
 #define BAT_BLOCK_SIZE      4096
 #define NAME_BLOCK_SIZE     4096
 #define KEY_SIZE            1024
@@ -58106,7 +52238,7 @@ enum block_cache_entries
 	, BC( BAT )
 #ifdef VIRTUAL_OBJECT_STORE
 	// keep a few tables for cache (file system too?)
-	, BC( BAT_LAST ) = BC( BAT ) + 4
+	, BC( BAT_LAST ) = BC( BAT ) + 16
 #endif
 	, BC(DATAKEY)
 	, BC(FILE)
@@ -58130,6 +52262,8 @@ enum block_cache_entries
 	, BC( ROLLBACK_LAST ) = BC( ROLLBACK ) + 6
 #endif
 #if defined( VIRTUAL_OBJECT_STORE ) && defined( DEBUG_VALIDATE_TREE )
+	// debug timeline, keep a mirror for comparisons, when links were lost, etc...
+	// can be factored out at some point.
 	, BC( TIMELINE_RO )
 	, BC( TIMELINE_RO_LAST ) = BC( TIMELINE_RO ) + 48
 #endif
@@ -58143,10 +52277,14 @@ enum block_cache_entries
 #define DIRENT_NAME_OFFSET_FLAG_SEALANT_SHIFT 17
 #define DIRENT_NAME_OFFSET_FLAG_OWNED         0x00400000
 #define DIRENT_NAME_OFFSET_FLAG_READ_KEYED    0x00800000
-#define DIRENT_NAME_OFFSET_VERSIONED          0x01000000
+// unused flag; previous indicated versioning.
+#define DIRENT_NAME_OFFSET_UNUSED_0         0x01000000
 #define DIRENT_NAME_OFFSET_VERSION_SHIFT      25
 #define DIRENT_NAME_OFFSET_VERSIONS           0x1E000000
 #define DIRENT_NAME_OFFSET_UNUSED             0xFE000000
+#  ifdef _MSC_VER
+#    pragma pack (push, 1)
+#  endif
 PREFIX_PACKED struct directory_entry
 {
   // name offset from beginning of disk
@@ -58160,6 +52298,9 @@ PREFIX_PACKED struct directory_entry
 	uint64_t timelineEntry;
 #endif
 } PACKED;
+#  ifdef _MSC_VER
+#    pragma pack (pop)
+#  endif
 #undef VFS_DIRECTORY_ENTRIES
 #ifdef VIRTUAL_OBJECT_STORE
 // subtract name has index
@@ -58192,7 +52333,7 @@ struct sack_vfs_disk {
 #undef SMUDGECACHE
 #undef CLEANCACHE
 #ifdef DEBUG_SECTOR_DIRT
-#define SMUDGECACHE(vol,n) {	 lprintf( "set dirty on %d", n);	 vfs_os_smudge_cache(vol,n);   }
+#define SMUDGECACHE(vol,n) {	 lprintf( "set dirty on %d %d %d", n, vol->segment[n], vol->bufferFPI[n]);	 vfs_os_smudge_cache(vol,n);   }
 #define CLEANCACHE(vol,n) {	 lprintf( "reset dirty on %d", n);	 RESETFLAG( vol->dirty, n ); }
 #else
 #define SMUDGECACHE(vol,n) {    vfs_os_smudge_cache(vol,n);   }
@@ -58215,10 +52356,19 @@ struct vfs_os_rollback_journal {
 	BLOCKINDEX nextBlock;
 	BLOCKINDEX nextSmallBlock;
 	PDATALIST pdlJournaled;
+ // sectors that are in rollback already
+	BLOCKINDEX *pJournaled;
+ // how long pJournaled is used
+	int journalLength;
+ // max length of pJournaled
+	int journalAvail;
 };
 #ifdef small
 #  undef small
 #endif
+#  ifdef _MSC_VER
+#    pragma pack (push, 1)
+#  endif
 PREFIX_PACKED struct vfs_os_rollback_entry {
 	BLOCKINDEX fileBlock;
 	struct {
@@ -58238,13 +52388,18 @@ PREFIX_PACKED struct vfs_os_rollback_header {
 	BLOCKINDEX journal;
  // where small blocks are tracked
 	BLOCKINDEX small_journal;
-	BLOCKINDEX rollbackLength;
+	BLOCKINDEX unused_rollbackLength;
 	BLOCKINDEX nextBlock;
 	BLOCKINDEX nextSmallBlock;
 	BLOCKINDEX nextEntry;
+  // align entries on 4096 boundaries
+	uint64_t   Filler1;
 	// where this is tracked.
 	struct vfs_os_rollback_entry  entries[1];
 }PACKED ;
+#  ifdef _MSC_VER
+#    pragma pack (pop)
+#  endif
 #endif
 struct sack_vfs_volume {
 	const char * volname;
@@ -58269,9 +52424,17 @@ struct sack_vfs_volume {
 // associated with usekey[n]
 	BLOCKINDEX segment[BC(COUNT)];
 #ifdef VIRTUAL_OBJECT_STORE
+	struct vfs_volume_flags {
+		BIT_FIELD skipRollbackProcessing : 1;
+ // stop any disk activity; test journal recoverability.
+		BIT_FIELD halted : 1;
+ // stop any disk activity; test journal recoverability.
+		BIT_FIELD versioned : 1;
+	}flags;
 	struct vfs_os_rollback_journal journal;
 	BLOCKINDEX lastBlock;
 	PDATALIST pdl_BAT_information;
+	PLIST pending_rollback;
 	//PDATASTACK pdsCTimeStack;// = CreateDataStack( sizeof( struct memoryTimelineNode ) );
 	//PDATASTACK pdsWTimeStack;// = CreateDataStack( sizeof( struct memoryTimelineNode ) );
  // timeline root
@@ -58626,7 +52789,7 @@ static LOGICAL ValidateBAT( struct sack_vfs_volume *vol ) {
 	BLOCKINDEX sector_b = (BLOCKINDEX)-1;
 	FLAGSETTYPE *usedSectors;
 	if( vol->dwSize & 0xfFF ) {
-		lprintf( "Volume is setup to fail with an odd number of bytes total : %d %08x %08x", (int)(vol->dwSize & 0xFFF), vol->dwSize, vol->dwSize );
+		lprintf( "Volume is setup to fail with an odd number of bytes total : %d %08" _size_f, (int)(vol->dwSize & 0xFFF), vol->dwSize );
 	}
 	size_t size;
 	usedSectors = NewArray( FLAGSETTYPE, size= (2+(vol->dwSize / BLOCK_SIZE)/(CHAR_BIT*sizeof(FLAGSETTYPE) )) );
@@ -59016,7 +53179,7 @@ uintptr_t vfs_BSEEK( struct sack_vfs_volume *vol, BLOCKINDEX block, enum block_c
 			//vol->segment[cache_index] = seg;
 			if( (cache_index[0] == BC(FILE))
 				&& (seg < 3) ) {
-				lprintf( "CRITICAL FAILURE, SEEK OUT OF DISK %d", seg );
+				lprintf( "CRITICAL FAILURE, SEEK OUT OF DISK %d", (int)seg );
 				(*(int*)0) = 0;
 			}
 			cache_index[0] = UpdateSegmentKey( vol, cache_index[0], seg );
@@ -60284,7 +54447,8 @@ SACK_VFS_NAMESPACE
 #define BLOCK_BYTE_SHIFT (BLOCK_SIZE_BITS)
 #define BLOCK_SIZE (1<<BLOCK_SIZE_BITS)
 #define BLOCK_SMALL_SIZE     256
-#define DIR_BLOCK_SIZE      4096
+#define DIR_BLOCK_SIZE_BITS   12
+#define DIR_BLOCK_SIZE      (1<<DIR_BLOCK_SIZE_BITS)
 #define BAT_BLOCK_SIZE      4096
 #define NAME_BLOCK_SIZE     4096
 #define KEY_SIZE            1024
@@ -60378,7 +54542,7 @@ enum block_cache_entries
 	, BC( BAT )
 #ifdef VIRTUAL_OBJECT_STORE
 	// keep a few tables for cache (file system too?)
-	, BC( BAT_LAST ) = BC( BAT ) + 4
+	, BC( BAT_LAST ) = BC( BAT ) + 16
 #endif
 	, BC(DATAKEY)
 	, BC(FILE)
@@ -60402,6 +54566,8 @@ enum block_cache_entries
 	, BC( ROLLBACK_LAST ) = BC( ROLLBACK ) + 6
 #endif
 #if defined( VIRTUAL_OBJECT_STORE ) && defined( DEBUG_VALIDATE_TREE )
+	// debug timeline, keep a mirror for comparisons, when links were lost, etc...
+	// can be factored out at some point.
 	, BC( TIMELINE_RO )
 	, BC( TIMELINE_RO_LAST ) = BC( TIMELINE_RO ) + 48
 #endif
@@ -60415,10 +54581,14 @@ enum block_cache_entries
 #define DIRENT_NAME_OFFSET_FLAG_SEALANT_SHIFT 17
 #define DIRENT_NAME_OFFSET_FLAG_OWNED         0x00400000
 #define DIRENT_NAME_OFFSET_FLAG_READ_KEYED    0x00800000
-#define DIRENT_NAME_OFFSET_VERSIONED          0x01000000
+// unused flag; previous indicated versioning.
+#define DIRENT_NAME_OFFSET_UNUSED_0         0x01000000
 #define DIRENT_NAME_OFFSET_VERSION_SHIFT      25
 #define DIRENT_NAME_OFFSET_VERSIONS           0x1E000000
 #define DIRENT_NAME_OFFSET_UNUSED             0xFE000000
+#  ifdef _MSC_VER
+#    pragma pack (push, 1)
+#  endif
 PREFIX_PACKED struct directory_entry
 {
   // name offset from beginning of disk
@@ -60432,6 +54602,9 @@ PREFIX_PACKED struct directory_entry
 	uint64_t timelineEntry;
 #endif
 } PACKED;
+#  ifdef _MSC_VER
+#    pragma pack (pop)
+#  endif
 #undef VFS_DIRECTORY_ENTRIES
 #ifdef VIRTUAL_OBJECT_STORE
 // subtract name has index
@@ -60464,7 +54637,7 @@ struct sack_vfs_disk {
 #undef SMUDGECACHE
 #undef CLEANCACHE
 #ifdef DEBUG_SECTOR_DIRT
-#define SMUDGECACHE(vol,n) {	 lprintf( "set dirty on %d", n);	 vfs_os_smudge_cache(vol,n);   }
+#define SMUDGECACHE(vol,n) {	 lprintf( "set dirty on %d %d %d", n, vol->segment[n], vol->bufferFPI[n]);	 vfs_os_smudge_cache(vol,n);   }
 #define CLEANCACHE(vol,n) {	 lprintf( "reset dirty on %d", n);	 RESETFLAG( vol->dirty, n ); }
 #else
 #define SMUDGECACHE(vol,n) {    vfs_os_smudge_cache(vol,n);   }
@@ -60487,10 +54660,19 @@ struct vfs_os_rollback_journal {
 	BLOCKINDEX nextBlock;
 	BLOCKINDEX nextSmallBlock;
 	PDATALIST pdlJournaled;
+ // sectors that are in rollback already
+	BLOCKINDEX *pJournaled;
+ // how long pJournaled is used
+	int journalLength;
+ // max length of pJournaled
+	int journalAvail;
 };
 #ifdef small
 #  undef small
 #endif
+#  ifdef _MSC_VER
+#    pragma pack (push, 1)
+#  endif
 PREFIX_PACKED struct vfs_os_rollback_entry {
 	BLOCKINDEX fileBlock;
 	struct {
@@ -60510,13 +54692,18 @@ PREFIX_PACKED struct vfs_os_rollback_header {
 	BLOCKINDEX journal;
  // where small blocks are tracked
 	BLOCKINDEX small_journal;
-	BLOCKINDEX rollbackLength;
+	BLOCKINDEX unused_rollbackLength;
 	BLOCKINDEX nextBlock;
 	BLOCKINDEX nextSmallBlock;
 	BLOCKINDEX nextEntry;
+  // align entries on 4096 boundaries
+	uint64_t   Filler1;
 	// where this is tracked.
 	struct vfs_os_rollback_entry  entries[1];
 }PACKED ;
+#  ifdef _MSC_VER
+#    pragma pack (pop)
+#  endif
 #endif
 struct sack_vfs_volume {
 	const char * volname;
@@ -60541,9 +54728,17 @@ struct sack_vfs_volume {
 // associated with usekey[n]
 	BLOCKINDEX segment[BC(COUNT)];
 #ifdef VIRTUAL_OBJECT_STORE
+	struct vfs_volume_flags {
+		BIT_FIELD skipRollbackProcessing : 1;
+ // stop any disk activity; test journal recoverability.
+		BIT_FIELD halted : 1;
+ // stop any disk activity; test journal recoverability.
+		BIT_FIELD versioned : 1;
+	}flags;
 	struct vfs_os_rollback_journal journal;
 	BLOCKINDEX lastBlock;
 	PDATALIST pdl_BAT_information;
+	PLIST pending_rollback;
 	//PDATASTACK pdsCTimeStack;// = CreateDataStack( sizeof( struct memoryTimelineNode ) );
 	//PDATASTACK pdsWTimeStack;// = CreateDataStack( sizeof( struct memoryTimelineNode ) );
  // timeline root
@@ -62496,6 +56691,8 @@ SACK_VFS_NAMESPACE
 //#define DEBUG_SECTOR_DIRT
 //#define DEBUG_CACHE_FAULTS
 //#define DEBUG_CACHE_FLUSH
+//#define DEBUG_SET_SECTOR_SIZE
+//#define DEBUG_FILE_TRUNCATE
 #define FILE_BASED_VFS
 #define VIRTUAL_OBJECT_STORE
 #ifndef _MSC_VER
@@ -62515,7 +56712,8 @@ SACK_VFS_NAMESPACE
 #define BLOCK_BYTE_SHIFT (BLOCK_SIZE_BITS)
 #define BLOCK_SIZE (1<<BLOCK_SIZE_BITS)
 #define BLOCK_SMALL_SIZE     256
-#define DIR_BLOCK_SIZE      4096
+#define DIR_BLOCK_SIZE_BITS   12
+#define DIR_BLOCK_SIZE      (1<<DIR_BLOCK_SIZE_BITS)
 #define BAT_BLOCK_SIZE      4096
 #define NAME_BLOCK_SIZE     4096
 #define KEY_SIZE            1024
@@ -62609,7 +56807,7 @@ enum block_cache_entries
 	, BC( BAT )
 #ifdef VIRTUAL_OBJECT_STORE
 	// keep a few tables for cache (file system too?)
-	, BC( BAT_LAST ) = BC( BAT ) + 4
+	, BC( BAT_LAST ) = BC( BAT ) + 16
 #endif
 	, BC(DATAKEY)
 	, BC(FILE)
@@ -62633,6 +56831,8 @@ enum block_cache_entries
 	, BC( ROLLBACK_LAST ) = BC( ROLLBACK ) + 6
 #endif
 #if defined( VIRTUAL_OBJECT_STORE ) && defined( DEBUG_VALIDATE_TREE )
+	// debug timeline, keep a mirror for comparisons, when links were lost, etc...
+	// can be factored out at some point.
 	, BC( TIMELINE_RO )
 	, BC( TIMELINE_RO_LAST ) = BC( TIMELINE_RO ) + 48
 #endif
@@ -62646,10 +56846,14 @@ enum block_cache_entries
 #define DIRENT_NAME_OFFSET_FLAG_SEALANT_SHIFT 17
 #define DIRENT_NAME_OFFSET_FLAG_OWNED         0x00400000
 #define DIRENT_NAME_OFFSET_FLAG_READ_KEYED    0x00800000
-#define DIRENT_NAME_OFFSET_VERSIONED          0x01000000
+// unused flag; previous indicated versioning.
+#define DIRENT_NAME_OFFSET_UNUSED_0         0x01000000
 #define DIRENT_NAME_OFFSET_VERSION_SHIFT      25
 #define DIRENT_NAME_OFFSET_VERSIONS           0x1E000000
 #define DIRENT_NAME_OFFSET_UNUSED             0xFE000000
+#  ifdef _MSC_VER
+#    pragma pack (push, 1)
+#  endif
 PREFIX_PACKED struct directory_entry
 {
   // name offset from beginning of disk
@@ -62663,6 +56867,9 @@ PREFIX_PACKED struct directory_entry
 	uint64_t timelineEntry;
 #endif
 } PACKED;
+#  ifdef _MSC_VER
+#    pragma pack (pop)
+#  endif
 #undef VFS_DIRECTORY_ENTRIES
 #ifdef VIRTUAL_OBJECT_STORE
 // subtract name has index
@@ -62695,7 +56902,7 @@ struct sack_vfs_disk {
 #undef SMUDGECACHE
 #undef CLEANCACHE
 #ifdef DEBUG_SECTOR_DIRT
-#define SMUDGECACHE(vol,n) {	 lprintf( "set dirty on %d", n);	 vfs_os_smudge_cache(vol,n);   }
+#define SMUDGECACHE(vol,n) {	 lprintf( "set dirty on %d %d %d", n, vol->segment[n], vol->bufferFPI[n]);	 vfs_os_smudge_cache(vol,n);   }
 #define CLEANCACHE(vol,n) {	 lprintf( "reset dirty on %d", n);	 RESETFLAG( vol->dirty, n ); }
 #else
 #define SMUDGECACHE(vol,n) {    vfs_os_smudge_cache(vol,n);   }
@@ -62718,10 +56925,19 @@ struct vfs_os_rollback_journal {
 	BLOCKINDEX nextBlock;
 	BLOCKINDEX nextSmallBlock;
 	PDATALIST pdlJournaled;
+ // sectors that are in rollback already
+	BLOCKINDEX *pJournaled;
+ // how long pJournaled is used
+	int journalLength;
+ // max length of pJournaled
+	int journalAvail;
 };
 #ifdef small
 #  undef small
 #endif
+#  ifdef _MSC_VER
+#    pragma pack (push, 1)
+#  endif
 PREFIX_PACKED struct vfs_os_rollback_entry {
 	BLOCKINDEX fileBlock;
 	struct {
@@ -62741,13 +56957,18 @@ PREFIX_PACKED struct vfs_os_rollback_header {
 	BLOCKINDEX journal;
  // where small blocks are tracked
 	BLOCKINDEX small_journal;
-	BLOCKINDEX rollbackLength;
+	BLOCKINDEX unused_rollbackLength;
 	BLOCKINDEX nextBlock;
 	BLOCKINDEX nextSmallBlock;
 	BLOCKINDEX nextEntry;
+  // align entries on 4096 boundaries
+	uint64_t   Filler1;
 	// where this is tracked.
 	struct vfs_os_rollback_entry  entries[1];
 }PACKED ;
+#  ifdef _MSC_VER
+#    pragma pack (pop)
+#  endif
 #endif
 struct sack_vfs_volume {
 	const char * volname;
@@ -62772,9 +56993,17 @@ struct sack_vfs_volume {
 // associated with usekey[n]
 	BLOCKINDEX segment[BC(COUNT)];
 #ifdef VIRTUAL_OBJECT_STORE
+	struct vfs_volume_flags {
+		BIT_FIELD skipRollbackProcessing : 1;
+ // stop any disk activity; test journal recoverability.
+		BIT_FIELD halted : 1;
+ // stop any disk activity; test journal recoverability.
+		BIT_FIELD versioned : 1;
+	}flags;
 	struct vfs_os_rollback_journal journal;
 	BLOCKINDEX lastBlock;
 	PDATALIST pdl_BAT_information;
+	PLIST pending_rollback;
 	//PDATASTACK pdsCTimeStack;// = CreateDataStack( sizeof( struct memoryTimelineNode ) );
 	//PDATASTACK pdsWTimeStack;// = CreateDataStack( sizeof( struct memoryTimelineNode ) );
  // timeline root
@@ -62926,6 +57155,7 @@ using namespace sack::SACK_VFS;
 #  endif
 #define vfs_SEEK vfs_os_SEEK
 #define vfs_BSEEK vfs_os_BSEEK
+#define MAX_FILENAME_LEN 256
 struct memoryTimelineNode;
 #ifdef __cplusplus
 namespace objStore {
@@ -62983,7 +57213,7 @@ struct dirent_cache {
 	int availPatches;
 } dirCache;
 struct hashnode {
-	char leadin[256];
+	char leadin[MAX_FILENAME_LEN];
 	int leadinDepth;
 	BLOCKINDEX this_dir_block;
 	size_t thisent;
@@ -62997,7 +57227,7 @@ struct sack_vfs_os_find_info {
 	size_t filesize;
 	CTEXTSTR mask;
 #ifdef VIRTUAL_OBJECT_STORE
-	char leadin[256];
+	char leadin[MAX_FILENAME_LEN];
 	int leadinDepth;
 	PDATASTACK pds_directories;
 	uint64_t ctime;
@@ -63010,8 +57240,9 @@ struct sack_vfs_os_find_info {
 };
 static void sack_vfs_os_flush_block( struct sack_vfs_os_volume* vol, enum block_cache_entries entry );
 static void vfs_os_smudge_cache( struct sack_vfs_os_volume* vol, enum block_cache_entries n );
-static BLOCKINDEX _os_GetFreeBlock_( struct sack_vfs_os_volume *vol, enum block_cache_entries* cache, enum getFreeBlockInit init, int blocksize DBG_PASS );
-#define _os_GetFreeBlock(v,c,i,s) _os_GetFreeBlock_(v,c,i,s DBG_SRC )
+static BLOCKINDEX _os_GetFreeBlock_( struct sack_vfs_os_volume *vol, enum block_cache_entries* cache, enum getFreeBlockInit init, int blocksize, LOGICAL flush_BAT_caches  DBG_PASS );
+#define _os_GetFreeBlock(v,c,i,s) _os_GetFreeBlock_(v,c,i,s,FALSE DBG_SRC )
+#define IS_OWNED(file)  ( (file->entry->name_offset) & DIRENT_NAME_OFFSET_FLAG_OWNED )
 LOGICAL _os_ScanDirectory_( struct sack_vfs_os_volume *vol, const char * filename
 	, BLOCKINDEX dirBlockSeg
 	, BLOCKINDEX *nameBlockStart
@@ -63022,6 +57253,7 @@ LOGICAL _os_ScanDirectory_( struct sack_vfs_os_volume *vol, const char * filenam
 );
 #define _os_ScanDirectory(v,f,db,nb,file,pm) ((l.leadinDepth = 0), _os_ScanDirectory_(v,f,db,nb,file,pm, l.leadin, &l.leadinDepth ))
 // This getNextBlock is optional allocate new one; it uses _os_getFreeBlock_
+static BLOCKINDEX vfs_os_GetNextBlock_v2( struct sack_vfs_os_volume* vol, BLOCKINDEX block, enum block_cache_entries* blockCache, enum getFreeBlockInit init, LOGICAL expand, int blockSize, int* realBlockSize, LOGICAL flush_BAT_caches );
 static BLOCKINDEX vfs_os_GetNextBlock( struct sack_vfs_os_volume *vol, BLOCKINDEX block, enum block_cache_entries *cache, enum getFreeBlockInit init, LOGICAL expand, int blockSize, int *realBlockSize );
 static LOGICAL _os_ExpandVolume( struct sack_vfs_os_volume *vol, BLOCKINDEX fromBlock, int size );
 //static void reloadTimeEntry( struct memoryTimelineNode *time, struct sack_vfs_os_volume *vol, uint64_t timeEntry DBG_PASS );
@@ -63040,7 +57272,10 @@ uintptr_t vfs_os_FSEEK( struct sack_vfs_os_volume* vol
 static size_t CPROC sack_vfs_os_seek_internal( struct sack_vfs_os_file* file, size_t pos, int whence );
 static size_t CPROC sack_vfs_os_write_internal( struct sack_vfs_os_file* file, const void* data_, size_t length
 	, POINTER writeState );
-static size_t CPROC sack_vfs_os_read_internal( struct sack_vfs_os_file* file, void* data_, size_t length );
+static size_t CPROC sack_vfs_os_read_internal( struct sack_vfs_os_file* file, uint64_t version, void* data_, size_t length );
+#  ifdef _MSC_VER
+#    pragma pack (push, 1)
+#  endif
 PREFIX_PACKED struct directory_hash_lookup_block
 {
 	BLOCKINDEX next_block[256];
@@ -63071,6 +57306,9 @@ PREFIX_PACKED struct directory_patch_ref_block
 		uint8_t dirEntry;
 	} entries[(DIR_BLOCK_SIZE)/sizeof( struct directory_patch_ref_entry )] PACKED;
 } PACKED;
+#  ifdef _MSC_VER
+#    pragma pack (pop)
+#  endif
 enum sack_vfs_os_seal_states {
 	SACK_VFS_OS_SEAL_NONE = 0,
 	SACK_VFS_OS_SEAL_LOAD,
@@ -63109,6 +57347,7 @@ static void WriteIntoBlock( struct sack_vfs_os_file* file, int blockType, FPI po
 //#define DEBUG_LOG_LOCKS
 //#define INVERSE_TEST
 //#define DEBUG_DELETE_BALANCE
+//#define DEBUG_TIMELINE_REORDER_LOGGING
 //#define DEBUG_AVL_DETAIL
 int nodes;
 struct storageTimelineCache {
@@ -63126,36 +57365,58 @@ typedef union timelineBlockType {
 		uint64_t index;
 	} ref;
 } TIMELINE_BLOCK_TYPE;
-// this is milliseconds since 1970 (unix epoc) * 256 + timezoneOffset /15 in the low byte
-typedef struct timelineTimeType {
-	int64_t tzOfs : 8;
-	uint64_t tick : 56;
-} TIMELINE_TIME_TYPE;
+#  ifdef _MSC_VER
+#    pragma pack (push, 1)
+#  endif
 PREFIX_PACKED struct timelineHeader {
 	TIMELINE_BLOCK_TYPE first_free_entry;
 	TIMELINE_BLOCK_TYPE crootNode_deleted;
+  // this index is 0 when initialized, and has a +1 to the entry number.
 	TIMELINE_BLOCK_TYPE srootNode;
-	uint64_t unused[5];
+	TIMELINE_BLOCK_TYPE last_added_entry;
+	uint64_t unused[4];
 	//uint64_t unused2[8];
 } PACKED;
 // current size is 64 bytes.
 // me_fpi is the physical FPI in the timeline file of the TIMELINE_BLOCK_TYPE that references 'this' block.
 // structure defines little endian structure for storage.
-PREFIX_PACKED struct storageTimelineNode {
+PREFIX_PACKED struct storageTimelineNode0 {
 	// if dirent_fpi == 0; it's free; and priorData will point at another free node
 	uint64_t dirent_fpi;
-	uint32_t filler32_1;
+	uint32_t priorTime;
 	uint16_t priorDataPad;
  // how much of the last block in the file is not used
 	uint8_t  filler8_1;
  // lesser least significant byte of time... sometimes can read time including timezone offset with time - 1 byte
 	uint8_t  timeTz;
 	uint64_t time;
- // it is know by  ( me_fpi & 0x3f ) == 32 or == 36 whether this is slesser or sgreater, (me_fpi & ~3f) = parent_fpi
-	uint64_t me_fpi;
  // if not 0, references a start block version of data.
 	uint64_t priorData;
 } PACKED;
+PREFIX_PACKED struct storageTimelineNode {
+	// if dirent_fpi == 0; it's free; and priorData will point at another free node
+	uint64_t dirent_fpi;
+	uint32_t priorTime;
+	uint16_t priorDataPad;
+ // how much of the last block in the file is not used
+	uint8_t  filler8_1;
+ // lesser least significant byte of time... sometimes can read time including timezone offset with time - 1 byte
+	uint8_t  timeTz;
+	uint64_t time;
+ // if not 0, references a start block version of data.
+	uint64_t priorData;
+ // if not 0, references a start block version of data.
+	uint64_t nextWrite;
+ // if not 0, references a start block version of data.
+	uint64_t priorWrite;
+ // This is the actual size of the data starting at block priorData
+	uint64_t priorDataSize;
+ // if not 0, references a start block version of data.
+	uint64_t filler64_2;
+} PACKED;
+#  ifdef _MSC_VER
+#    pragma pack (pop)
+#  endif
 struct memoryTimelineNode {
 	// if dirent_fpi == 0; it's free.
 	FPI this_fpi;
@@ -63170,15 +57431,27 @@ struct storageTimelineCursor {
  // temp; needs work.
 	struct storageTimelineCache dirents;
 };
+struct sack_vfs_os_time_cursor {
+	struct sack_vfs_os_volume* vol;
+	uint64_t at;
+};
+#  ifdef _MSC_VER
+#    pragma pack (push, 1)
+#  endif
 #define NUM_ROOT_TIMELINE_NODES (TIME_BLOCK_SIZE - sizeof( struct timelineHeader )) / sizeof( struct storageTimelineNode )
 PREFIX_PACKED struct storageTimeline {
 	struct timelineHeader header;
 	struct storageTimelineNode entries[NUM_ROOT_TIMELINE_NODES];
 } PACKED;
+/*
 #define NUM_TIMELINE_NODES (TIME_BLOCK_SIZE) / sizeof( struct storageTimelineNode )
 PREFIX_PACKED struct storageTimelineBlock {
 	struct storageTimelineNode entries[(TIME_BLOCK_SIZE) / sizeof( struct storageTimelineNode )];
 } PACKED;
+*/
+#  ifdef _MSC_VER
+#    pragma pack (pop)
+#  endif
 #ifdef DEBUG_VALIDATE_TREE
 #define VTReadOnly  , TRUE
 #define VTReadWrite  , FALSE
@@ -63206,6 +57479,7 @@ struct storageTimelineNode* getRawTimeEntry( struct sack_vfs_os_volume* vol, uin
 	FPI pos = sane_offsetof( struct storageTimeline, entries[timeEntry - 1] );
 /*no block*/
 	struct storageTimelineNode* node = ( struct storageTimelineNode* )vfs_os_FSEEK( vol, vol->timeline_file, 0, pos, cache, TIME_BLOCK_SIZE DBG_SRC );
+	//_lprintf(DBG_RELAY)( "Load Entry %d", (int)timeEntry );
 	locks = GETMASK_( vol->seglock, seglock, cache[0] );
 #ifdef DEBUG_TEST_LOCKS
 #  ifdef DEBUG_LOG_LOCKS
@@ -63268,6 +57542,7 @@ void reloadTimeEntry( struct memoryTimelineNode* time, struct sack_vfs_os_volume
 	//if( timeEntry > 62 )DebugBreak();
 	int locks;
 	FPI pos = sane_offsetof( struct storageTimeline, entries[timeEntry - 1] );
+	//lprintf( "Read Entry %d", (int)timeEntry );
 /*no block*/
 	struct storageTimelineNode* node = ( struct storageTimelineNode* )vfs_os_FSEEK( vol, vol->timeline_file, 0, pos, &cache, TIME_BLOCK_SIZE DBG_RELAY );
 	locks = GETMASK_( vol->seglock, seglock, cache );
@@ -63290,14 +57565,232 @@ void reloadTimeEntry( struct memoryTimelineNode* time, struct sack_vfs_os_volume
 	time->index = timeEntry;
 	time->this_fpi = pos;
 }
+#ifdef DEBUG_TIMELINE_REORDER_LOGGING
+// didn't actually have to use this.
+static void dumpTimeline( struct sack_vfs_os_volume* vol ) {
+	lprintf( "--- Timeline ----" );
+	lprintf( "root %lld last %lld free %lld", vol->timeline->header.srootNode.raw, vol->timeline->header.last_added_entry.raw, vol->timeline->header.first_free_entry.raw );
+	int entry;
+	enum block_cache_entries_os cache = BC( TIMELINE );
+	struct storageTimelineNode* block;
+	for( entry = 1; entry != vol->timeline->header.first_free_entry.raw; entry++ ) {
+		block = getRawTimeEntry( vol, entry, &cache GRTENoLog DBG_SRC );
+		lprintf( "Entry %d  de:%lld prev:%lld next:%lld time:%lld tz:%d", entry, block->dirent_fpi, block->priorWrite, block->nextWrite, block->time, block->timeTz );
+		dropRawTimeEntry( vol, cache GRTENoLog DBG_SRC );
+	}
+}
+#endif
+//-----------------------------------------------------------------------------------
+// Timeline Support Functions
+//-----------------------------------------------------------------------------------
+static void reorderEntry( struct memoryTimelineNode* time, struct sack_vfs_os_volume* vol, int toEnd DBG_PASS ) {
+	if( time ) {
+		// time changed...(maybe?)
+		{
+			uint64_t myself = time->index;
+			struct storageTimelineNode* prev;
+			enum block_cache_entries_os cache, _cache = BC(ZERO);
+			if( time->disk->priorWrite ) {
+				prev = getRawTimeEntry( vol, time->disk->priorWrite, &cache GRTENoLog DBG_RELAY );
+			} else { prev = NULL; cache = BC(ZERO); }
+			enum block_cache_entries_os cache2, _cache2 = BC(ZERO);
+			struct storageTimelineNode* next;
+			if( time->disk->nextWrite ) {
+				next = getRawTimeEntry( vol, time->disk->nextWrite, &cache2 GRTENoLog DBG_RELAY );
+			} else { next = NULL; cache2 = BC(ZERO); }
+			if( toEnd ) {
+				enum block_cache_entries_os cache3;
+				struct storageTimelineNode* last;
+				last = getRawTimeEntry( vol, vol->timeline->header.last_added_entry.ref.index, &cache3 GRTENoLog DBG_SRC );
+				if( last && last->time <= time->disk->time ) {
+#ifdef DEBUG_TIMELINE_REORDER_LOGGING
+					dumpTimeline( vol );
+#endif
+					last->nextWrite = myself;
+					if( !time->disk->priorWrite ) {
+						if( next ) next->priorWrite = 0;
+						vol->timeline->header.srootNode.ref.index = time->disk->nextWrite;
+					} else if(next ) next->priorWrite = time->disk->priorWrite;
+					if( prev ) prev->nextWrite = time->disk->nextWrite;
+					time->disk->priorWrite = vol->timeline->header.last_added_entry.ref.index;
+					time->disk->nextWrite = 0;
+					// if this is the new end of the list, update the last entry....
+#ifdef DEBUG_TIMELINE_REORDER_LOGGING
+					lprintf( "new last block:%lld after %lld", myself, vol->timeline->header.last_added_entry.ref.index );
+#endif
+					vol->timeline->header.last_added_entry.ref.index = myself;
+					SMUDGECACHE( vol, vol->timelineCache );
+					if( prev ) dropRawTimeEntry( vol, cache GRTELog DBG_RELAY );
+					if( next ) dropRawTimeEntry( vol, cache2 GRTELog DBG_RELAY );
+					if( last ) dropRawTimeEntry( vol, cache3 GRTELog DBG_RELAY );
+#ifdef DEBUG_TIMELINE_REORDER_LOGGING
+					dumpTimeline( vol );
+#endif
+					return;
+				} else {
+					if( last ) dropRawTimeEntry( vol, cache3 GRTENoLog DBG_RELAY );
+				}
+			}
+			if( next && ( next->time < time->disk->time ) ) {
+				//myself = next->priorWrite;
+				if( prev )
+					prev->nextWrite = time->disk->nextWrite;
+				else {
+					vol->timeline->header.srootNode.ref.index = time->disk->nextWrite;
+					SMUDGECACHE( vol, vol->timelineCache );
+				}
+#ifdef DEBUG_TIMELINE_REORDER_LOGGING
+				lprintf( "Searching forward...." );
+#endif
+				next->priorWrite = time->disk->priorWrite;
+				while( ( prev = next ) && ( ( _cache ? dropRawTimeEntry( vol, _cache GRTENoLog DBG_RELAY ) : (void)0 ), ( _cache = cache ), ( cache = BC( TIMELINE ) ),
+					( next = getRawTimeEntry( vol, prev->nextWrite, &cache GRTENoLog DBG_SRC ) ) )
+					) {
+					if( !next->nextWrite ) {
+						if( !time->disk->priorWrite ) {
+							struct storageTimelineNode* next;
+							enum block_cache_entries_os cache = BC( TIMELINE );
+							next = getRawTimeEntry( vol, time->disk->nextWrite, &cache GRTENoLog DBG_RELAY );
+							if( next ) next->priorWrite = 0;
+							vol->timeline->header.srootNode.ref.index = time->disk->nextWrite;
+							dropRawTimeEntry( vol, cache GRTENoLog DBG_RELAY );
+						}
+						time->disk->priorWrite = prev->nextWrite;
+						time->disk->nextWrite = 0;
+						next->nextWrite = myself;
+						dropRawTimeEntry( vol, cache GRTELog DBG_RELAY );
+						if( cache2 ) dropRawTimeEntry( vol, cache2 GRTELog DBG_RELAY );
+						// if this is the new end of the list, update the last entry....
+						vol->timeline->header.last_added_entry.ref.index = myself;
+						SMUDGECACHE( vol, vol->timelineCache );
+ // done. (at end anyway)
+						break;
+					}
+					if( next->time > time->disk->time ) {
+#ifdef DEBUG_TIMELINE_REORDER_LOGGING
+						lprintf( "found insertion point %lld  %lld %lld", myself, prev->nextWrite, next->priorWrite );
+#endif
+						if( !time->disk->priorWrite ) {
+							struct storageTimelineNode* next;
+							enum block_cache_entries_os cache = BC( TIMELINE );
+							next = getRawTimeEntry( vol, time->disk->nextWrite, &cache GRTENoLog DBG_RELAY );
+							if( next ) next->priorWrite = 0;
+							vol->timeline->header.srootNode.ref.index = time->disk->nextWrite;
+							dropRawTimeEntry( vol, cache GRTENoLog DBG_RELAY );
+						}
+						time->disk->nextWrite = prev->nextWrite;
+						time->disk->priorWrite = next->priorWrite;
+						prev->nextWrite = myself;
+						next->priorWrite = myself;
+						dropRawTimeEntry( vol, cache GRTELog DBG_RELAY );
+						if( cache2 ) dropRawTimeEntry( vol, cache2 GRTELog DBG_RELAY );
+						break;
+					}
+				}
+			} else if( prev && ( prev->time > time->disk->time ) ) {
+				//myself = prev->nextWrite;
+				if( !( prev->nextWrite = time->disk->nextWrite ) ) {
+					vol->timeline->header.last_added_entry.ref.index = time->disk->priorWrite;
+					SMUDGECACHE( vol, vol->timelineCache );
+				}
+				if( next )
+					next->priorWrite = time->disk->priorWrite;
+#ifdef DEBUG_TIMELINE_REORDER_LOGGING
+				lprintf( "Searching backward" );
+				dumpTimeline( vol );
+#endif
+				while( ( _cache2 ? dropRawTimeEntry( vol, _cache2 GRTENoLog DBG_RELAY ) : (void)0 ), ( _cache2 = cache2 ), ( cache2 = BC( TIMELINE ) )
+					, ( next = prev ) ) {
+#ifdef DEBUG_TIMELINE_REORDER_LOGGING
+					lprintf( "checking next record %lld", next->priorWrite );
+#endif
+					if( !next->priorWrite ) {
+						next->priorWrite = myself;
+						if( !time->disk->nextWrite ) {
+							struct storageTimelineNode* prev;
+							enum block_cache_entries_os cache = BC( TIMELINE );
+							prev = getRawTimeEntry( vol, time->disk->priorWrite, &cache GRTENoLog DBG_RELAY );
+							if( prev ) prev->nextWrite = 0;
+							vol->timeline->header.last_added_entry.ref.index = time->disk->priorWrite;
+							dropRawTimeEntry( vol, cache GRTENoLog DBG_RELAY );
+						}
+						time->disk->nextWrite = vol->timeline->header.srootNode.ref.index;
+						time->disk->priorWrite = 0;
+						vol->timeline->header.srootNode.ref.index = myself;
+						SMUDGECACHE( vol, vol->timelineCache );
+#ifdef DEBUG_TIMELINE_REORDER_LOGGING
+						lprintf( "Saving as first..." );
+#endif
+						if( cache ) dropRawTimeEntry( vol, cache GRTELog DBG_RELAY );
+						dropRawTimeEntry( vol, cache2 GRTELog DBG_RELAY );
+						break;
+					} else {
+						( prev = getRawTimeEntry( vol, next->priorWrite, &cache2 GRTENoLog DBG_SRC ) );
+					}
+					if( !prev->priorWrite ) {
+						// new root node...
+						vol->timeline->header.srootNode.ref.index = prev->priorWrite = myself;
+						SMUDGECACHE( vol, vol->timelineCache );
+						if( !time->disk->nextWrite ) {
+							struct storageTimelineNode* prev;
+							enum block_cache_entries_os cache = BC( TIMELINE );
+							prev = getRawTimeEntry( vol, time->disk->priorWrite, &cache GRTENoLog DBG_RELAY );
+							if( prev ) prev->nextWrite = 0;
+							vol->timeline->header.last_added_entry.ref.index = time->disk->priorWrite;
+							dropRawTimeEntry( vol, cache GRTENoLog DBG_RELAY );
+						}
+						time->disk->nextWrite = next->priorWrite;
+						time->disk->priorWrite = 0;
+#ifdef DEBUG_TIMELINE_REORDER_LOGGING
+						lprintf( "Saving as first(2)..." );
+#endif
+						if( cache ) dropRawTimeEntry( vol, cache GRTELog DBG_RELAY );
+						dropRawTimeEntry( vol, cache2 GRTELog DBG_RELAY );
+ // done. (at end anyway)
+						break;
+					}
+					if( prev->time < time->disk->time ) {
+						if( !time->disk->nextWrite ) {
+							struct storageTimelineNode* prev;
+							enum block_cache_entries_os cache = BC( TIMELINE );
+							prev = getRawTimeEntry( vol, time->disk->priorWrite, &cache GRTENoLog DBG_RELAY );
+							if( prev ) prev->nextWrite = 0;
+							vol->timeline->header.last_added_entry.ref.index = time->disk->priorWrite;
+							dropRawTimeEntry( vol, cache GRTENoLog DBG_RELAY );
+						}
+						time->disk->nextWrite = prev->nextWrite;
+						time->disk->priorWrite = next->priorWrite;
+						prev->nextWrite = myself;
+						next->priorWrite = myself;
+#ifdef DEBUG_TIMELINE_REORDER_LOGGING
+						lprintf( "Saving in middle..." );
+#endif
+						if( cache ) dropRawTimeEntry( vol, cache GRTELog DBG_RELAY );
+						dropRawTimeEntry( vol, cache2 GRTELog DBG_RELAY );
+						break;
+					}
+				}
+			} else {
+				// didn't have to move anything... maybe it's time is still the same relative to everything?
+			}
+		}
+	}
+#ifdef DEBUG_TIMELINE_REORDER_LOGGING
+	dumpTimeline( vol );
+#endif
+}
 //-----------------------------------------------------------------------------------
 // Timeline Support Functions
 //-----------------------------------------------------------------------------------
 void updateTimeEntry( struct memoryTimelineNode* time, struct sack_vfs_os_volume* vol, LOGICAL drop DBG_PASS ) {
-	SMUDGECACHE( vol, time->diskCache );
+	if( time ) {
+		SMUDGECACHE( vol, time->diskCache );
+		// time changed...(maybe?)
+	}
 	if( drop ) {
 		int locks;
-		locks = GETMASK_( vol->seglock, seglock, time->diskCache );
+		int bit = time->diskCache;
+		locks = GETMASK_( vol->seglock, seglock, bit );
 #ifdef DEBUG_TEST_LOCKS
 #ifdef DEBUG_LOG_LOCKS
 		lprintf( "Unlock %d %d", time->diskCache, locks );
@@ -63308,7 +57801,7 @@ void updateTimeEntry( struct memoryTimelineNode* time, struct sack_vfs_os_volume
 		}
 #endif
 		locks--;
-		SETMASK_( vol->seglock, seglock, time->diskCache, locks );
+		SETMASK_( vol->seglock, seglock, bit, locks );
 	}
 }
 //---------------------------------------------------------------------------
@@ -63319,11 +57812,11 @@ void reloadDirectoryEntry( struct sack_vfs_os_volume* vol, struct memoryTimeline
 	struct directory_hash_lookup_block* dirblock;
 	//struct directory_hash_lookup_block* dirblockkey;
 	PDATASTACK pdsChars = CreateDataStack( 1 );
-	BLOCKINDEX this_dir_block = (time->disk->dirent_fpi >> BLOCK_BYTE_SHIFT);
+	BLOCKINDEX this_dir_block = (time->disk->dirent_fpi >> DIR_BLOCK_SIZE_BITS )-1;
 	BLOCKINDEX next_block;
 	dirblock = BTSEEK( struct directory_hash_lookup_block*, vol, this_dir_block, DIR_BLOCK_SIZE, cache );
 	//dirblockkey = (struct directory_hash_lookup_block*)vol->usekey[cache];
-	dirent = (struct directory_entry*)(((uintptr_t)dirblock) + (time->disk->dirent_fpi & BLOCK_SIZE));
+	dirent = (struct directory_entry*)( ( (uintptr_t)dirblock ) + ( time->disk->dirent_fpi & ( DIR_BLOCK_SIZE - 1 ) ) );
 	//entkey = (struct directory_entry*)(((uintptr_t)dirblockkey) + (time->dirent_fpi & BLOCK_SIZE));
 	decoded_dirent->vol = vol;
 	// all of this regards the current state of a find cursor...
@@ -63332,12 +57825,12 @@ void reloadDirectoryEntry( struct sack_vfs_os_volume* vol, struct memoryTimeline
 	decoded_dirent->mask = NULL;
 	decoded_dirent->pds_directories = NULL;
 	decoded_dirent->filesize = (size_t)( dirent->filesize );
-	if( time->disk->priorData ) {
+	if( time->disk->priorTime ) {
 		enum block_cache_entries cache;
-		struct storageTimelineNode* prior = getRawTimeEntry( vol, time->disk->priorData, &cache GRTENoLog DBG_SRC );
-		while( prior->priorData ) {
+		struct storageTimelineNode* prior = getRawTimeEntry( vol, time->disk->priorTime, &cache GRTENoLog DBG_SRC );
+		while( prior->priorTime ) {
 			dropRawTimeEntry( vol, cache GRTENoLog DBG_RELAY );
-			prior = getRawTimeEntry( vol, prior->priorData, &cache GRTENoLog DBG_RELAY );
+			prior = getRawTimeEntry( vol, prior->priorTime, &cache GRTENoLog DBG_RELAY );
 		}
 		decoded_dirent->ctime = prior->time;
 		dropRawTimeEntry( vol, cache GRTENoLog DBG_RELAY );
@@ -63416,11 +57909,16 @@ static void deleteTimelineIndex( struct sack_vfs_os_volume* vol, BLOCKINDEX inde
 		//lprintf( "Delete start... %d", index );
 		time = getRawTimeEntry( vol, index, &cache GRTELog DBG_SRC );
  // this type is larger than index in some configurations
-		next = (BLOCKINDEX)time->priorData;
+		next = (BLOCKINDEX)time->priorTime;
 		nodes--;
+		if( !next ) {
+			if( vol->timeline->header.srootNode.ref.index == index ) {
+				vol->timeline->header.srootNode.ref.index = time->nextWrite;
+			}
+		}
 		{
 			struct storageTimeline* timeline = vol->timeline;
-			time->priorData = timeline->header.first_free_entry.ref.index;
+			time->priorTime = (uint32_t)timeline->header.first_free_entry.ref.index;
 			timeline->header.first_free_entry.ref.index = index;
 			SMUDGECACHE( vol, vol->timelineCache );
 			SMUDGECACHE( vol, cache );
@@ -63434,10 +57932,6 @@ static void deleteTimelineIndex( struct sack_vfs_os_volume* vol, BLOCKINDEX inde
 #ifdef DEBUG_DELETE_LAST
 	checkRoot( vol );
 #endif
-	if( !nodes && vol->timeline->header.srootNode.ref.index ) {
-		lprintf( "No more nodes, but the root points at something." );
-		DebugBreak();
-	}
 	//lprintf( "Root is now %d %d", nodes, vol->timeline->header.srootNode.ref.index );
 }
 BLOCKINDEX getTimeEntry( struct memoryTimelineNode* time, struct sack_vfs_os_volume* vol, LOGICAL unused, void(*init)(uintptr_t, struct memoryTimelineNode*), uintptr_t psv DBG_PASS ) {
@@ -63450,17 +57944,49 @@ BLOCKINDEX getTimeEntry( struct memoryTimelineNode* time, struct sack_vfs_os_vol
 	BLOCKINDEX index;
  // ref.index type is larger than index in some configurations; but won't exceed those bounds
 	BLOCKINDEX priorIndex = (BLOCKINDEX)time->index;
+	BLOCKINDEX lastIndex = timeline->header.last_added_entry.ref.index;
 	freeIndex.ref.index = timeline->header.first_free_entry.ref.index;
 	// update next free.
  // ref.index type is larger than index in some configurations; but won't exceed those bounds
 	reloadTimeEntry( time, vol, index = (BLOCKINDEX)freeIndex.ref.index VTReadWrite GRTELog DBG_RELAY );
+	if( !timeline->header.srootNode.ref.index )
+		timeline->header.srootNode.ref.index = 1;
 	timeline->header.first_free_entry.ref.index = timeline->header.first_free_entry.ref.index + 1;
-	SMUDGECACHE( vol, vol->timelineCache );
 	// make sure the new entry is emptied.
-	time->disk->me_fpi = 0;
+	//time->disk->me_fpi = 0;
 	time->disk->dirent_fpi = 0;
+	time->disk->priorTime = 0;
 	time->disk->priorData = 0;
+	time->disk->priorDataSize = 0;
+	if( lastIndex )
+	{
+		enum block_cache_entries cache_near = BC( TIMELINE );
+		struct storageTimelineNode* last = getRawTimeEntry( vol, lastIndex, &cache_near GRTENoLog DBG_RELAY );
+		if( !last->nextWrite ) {
+			last->nextWrite = index;
+			// updated a value here...
+			SMUDGECACHE( vol, cache_near );
+		} else {
+			lprintf( "Shouldn't have to find what the last node in the chain is...." );
+			/*
+			dropRawTimeEntry( vol, cache_near GRTENoLog DBG_RELAY );
+			while( last = getRawTimeEntry( vol, last->nextWrite, &cache_near GRTENoLog DBG_RELAY ) ) {
+				dropRawTimeEntry( vol, cache_near );
+				if( !last->nextWrite ) {
+					last->nextWrite = index;
+					break;
+				}
+			}
+			*/
+		}
+		dropRawTimeEntry( vol, cache_near GRTENoLog DBG_RELAY );
+	}
+	time->disk->priorWrite = lastIndex;
+	time->disk->nextWrite = 0;
+ // there really shouldn't be any times after this one....
 	time->disk->time = timeGetTime64ns();
+	timeline->header.last_added_entry.ref.index = index;
+	SMUDGECACHE( vol, vol->timelineCache );
 	{
 		int tz = GetTimeZone();
 		if( tz < 0 )
@@ -63469,11 +57995,11 @@ BLOCKINDEX getTimeEntry( struct memoryTimelineNode* time, struct sack_vfs_os_vol
 		else
  // -840/15 = -56  720/15 = 48
 			tz = ( ( ( tz / 100 ) * 60 ) + ( tz % 100 ) ) / 15;
-		time->disk->time += (int64_t)tz * 900 * (int64_t)1000000000;
+		//time->disk->time += (int64_t)tz * 900 * (int64_t)1000000000;
 		time->disk->timeTz = tz;
 	}
 	if( init ) init( psv, time );
-	nodes++;
+	//nodes++;
 	//lprintf( "Add start... %d", freeIndex.ref.index );
 #if defined( DEBUG_TIMELINE_DIR_TRACKING) || defined( DEBUG_TIMELINE_AVL )
 	LoG( "Return time entry:%d", time->index );
@@ -63490,11 +58016,11 @@ BLOCKINDEX updateTimeEntryTime( struct memoryTimelineNode* time
 		if( time ) {
 			uint64_t inputIndex = time ? time->index : index;
 			// gets a new timestamp.
-			enum block_cache_entries inputCache = time ? time->diskCache : BC( ZERO );
+			//enum block_cache_entries inputCache = time ? time->diskCache : BC( ZERO );
 			BLOCKINDEX newIndex = getTimeEntry( time, vol, TRUE, init, psv DBG_RELAY );
-			time->disk->priorData = inputIndex;
+			time->disk->priorTime = (uint32_t)inputIndex;
 			updateTimeEntry( time, vol, FALSE DBG_RELAY );
-			dropRawTimeEntry( vol, inputCache GRTELog DBG_RELAY );
+			//dropRawTimeEntry( vol, inputCache GRTELog DBG_RELAY );
 			return newIndex;
 		}
 		else {
@@ -63510,7 +58036,7 @@ BLOCKINDEX updateTimeEntryTime( struct memoryTimelineNode* time
 			// gets a new timestamp.
 			time_.index = index;
 			BLOCKINDEX newIndex = getTimeEntry( &time_, vol, TRUE, init, psv DBG_RELAY );
-			time_.disk->priorData = inputIndex;
+			time_.disk->priorTime = (uint32_t)inputIndex;
 			time_.disk->dirent_fpi = dirent_fpi;
 			updateTimeEntry( &time_, vol, TRUE DBG_RELAY );
 			return newIndex;
@@ -63518,6 +58044,7 @@ BLOCKINDEX updateTimeEntryTime( struct memoryTimelineNode* time
 	}
 	else {
 		struct memoryTimelineNode time_;
+		LOGICAL existing = ( time ) ? 1 : 0;
 		if( !time ) time = &time_;
 		reloadTimeEntry( time, vol, index VTReadWrite GRTENoLog DBG_RELAY );
 		time->disk->time = timeGetTime64ns();
@@ -63529,17 +58056,128 @@ BLOCKINDEX updateTimeEntryTime( struct memoryTimelineNode* time
 			else
  // -840/15 = -56  720/15 = 48
 				tz = ( ( ( tz / 100 ) * 60 ) + ( tz % 100 ) ) / 15;
-			time->disk->time += (int64_t)tz * 900 * (int64_t)1000000000;
+			//time->disk->time += (int64_t)tz * 900 * (int64_t)1000000000;
 			time->disk->timeTz = tz;
 		}
-		updateTimeEntry( time, vol, FALSE DBG_RELAY );
+		reorderEntry( time, vol, 1 DBG_RELAY );
+		updateTimeEntry( time, vol, TRUE DBG_RELAY );
  // index type is larger than index in some configurations; but won't exceed those bounds
 		return (BLOCKINDEX)index;
 	}
 }
-#define priorIndex priorData
+LOGICAL setTimeEntryTime( struct memoryTimelineNode* time
+			, struct sack_vfs_os_volume *vol
+			, uint64_t tick
+			, int tz ) {
+	if( !time ) {
+//time = &time_;
+		lprintf( "invalid time entry passed" );
+		return FALSE;
+	} else {
+		//reloadTimeEntry( time, vol, index VTReadWrite GRTENoLog DBG_RELAY );
+		time->disk->timeTz = tz;
+		time->disk->time = tick;
+		reorderEntry( time, vol, 0 DBG_SRC );
+		updateTimeEntry( time, vol, FALSE DBG_SRC );
+		return TRUE;
+	}
+}
+struct sack_vfs_os_time_cursor* sack_vfs_os_get_time_cursor( struct sack_vfs_os_volume *vol ) {
+	struct sack_vfs_os_time_cursor* cursor;
+	cursor = New( struct sack_vfs_os_time_cursor );
+	cursor->vol = vol;
+	cursor->at = 0;
+	return cursor;
+}
+//--------------------------------
+//  read TIme Cursor reads/steps the cursor...
+//    step==0 && time === 0 && at === 0 ; start at the start of timeline.
+//    step==0 && time === N ; seek to time N, update at to the found record
+//    step==1 && time === N ; seek to record N, update at to the time at the indexed record
+//
+LOGICAL sack_vfs_os_read_time_cursor( struct sack_vfs_os_time_cursor* cursor, int step, uint64_t time, uint64_t* result_entry, const char**filename
+	, uint64_t *result_timestamp, int8_t *result_tz, const char**buffer, size_t *size ) {
+	static char* dataBuffer;
+	static size_t bufsize;
+	//uint64_t time = (time_ >> 8) * 1000000;
+ // last raw entry cache
+	enum block_cache_entries_os cache;
+	LOGICAL dropCache = FALSE;
+ // used as the record found indicator.
+	uint64_t entry = 0;
+	if( step == 2 ) {
+		entry = cursor->at;
+	}
+	else if( step == 1 ) {
+		if( !time ) {
+			cursor->at = entry = cursor->vol->timeline->header.srootNode.ref.index;
+		}else
+			cursor->at = entry = time;
+	}
+	else if( step == 0 ) {
+		// if( !time_ )
+		struct storageTimelineNode* timeNode = getRawTimeEntry( cursor->vol, cursor->vol->timeline->header.srootNode.ref.index, &cache GRTENoLog DBG_SRC );
+		while( timeNode && timeNode->time < time ) {
+			uint64_t next = timeNode->nextWrite;
+			dropRawTimeEntry( cursor->vol, cache  GRTENoLog DBG_SRC );
+			if( next ) timeNode = getRawTimeEntry( cursor->vol, next, &cache GRTENoLog DBG_SRC );
+			else timeNode = NULL;
+			entry = next;
+		}
+		if( !timeNode )
+			return FALSE;
+		dropCache = TRUE;
+	}
+	if( entry )
+	{
+		LOGICAL retVal = TRUE;
+		{
+		struct memoryTimelineNode memEntry;
+		reloadTimeEntry( &memEntry, cursor->vol, entry GRTENoLog DBG_SRC );
+		if( memEntry.disk->dirent_fpi ) {
+			cursor->at = memEntry.disk->nextWrite;
+			struct sack_vfs_os_find_info decoded_dirent;
+			reloadDirectoryEntry( cursor->vol, &memEntry, &decoded_dirent DBG_SRC );
+			if( result_entry ) {
+				result_entry[0] = memEntry.index;
+			}
+			if( result_tz ) {
+				result_tz[0] = memEntry.disk->timeTz;
+			}
+			if( result_timestamp ) {
+				result_timestamp[0] = memEntry.disk->time;
+			}
+			if( filename ) {
+				filename[0] = StrDup( decoded_dirent.filename );
+			}
+			if( size ) {
+				size[0] = decoded_dirent.filesize;
+				if( buffer ) {
+					if( bufsize < size[0] ) {
+						dataBuffer = (char*)Reallocate( dataBuffer, size[0] );
+					}
+					buffer[0] = dataBuffer;
+					{
+						// there might be a more optimal method of doing this; but this is easy to read.
+						struct sack_vfs_file* file = sack_vfs_os_openfile( cursor->vol, decoded_dirent.filename );
+						sack_vfs_os_read( file, dataBuffer, size[0] );
+						sack_vfs_os_close( file );
+					}
+				}
+			}
+		} else
+			retVal = FALSE;
+		dropRawTimeEntry( cursor->vol, memEntry.diskCache GRTENoLog DBG_SRC );
+		if( dropCache )
+			dropRawTimeEntry( cursor->vol, cache  GRTENoLog DBG_SRC );
+		}
+		return retVal;
+		//cursor->at = time;
+	}
+	return FALSE;
+}
 //#include "vfs_os_timeline.c"
-//#define priorIndex prior.ref.index
+//#define priorData prior.ref.index
 struct blockInfo {
 	BLOCKINDEX block;
 	FPI start;
@@ -63561,7 +58199,10 @@ struct sack_vfs_os_file
 #  ifdef FILE_BASED_VFS
   // where to write the directory entry update to
 	FPI entry_fpi;
-#    ifdef VIRTUAL_OBJECT_STORE
+ // delete also needs the block number
+	BLOCKINDEX dir_block;
+#    ifdef XX_VIRTUAL_OBJECT_STORE
+	/* extended internal file information that just makes it harder to recover in a crash.*/
 	int blockSize;
 	struct file_header diskHeader;
   // in-memory size, so we can just do generic move op
@@ -63577,10 +58218,15 @@ struct sack_vfs_os_file
 	//char* filename;
 	LOGICAL fileName;
 #    endif
+	struct sack_vfs_os_file_flags {
+		BIT_FIELD versioned : 1;
+	}flags;
   // has file size within
-	struct directory_entry _entry;
+	struct directory_entry  entry_;
   // has file size within
 	struct directory_entry* entry;
+  // how big the file is (live - reflects size for files opened by version)
+	VFS_DISK_DATATYPE filesize_;
  // files without names use this as thier preferred cache target
 	enum block_cache_entries cache;
 #  else
@@ -63596,18 +58242,26 @@ static struct {
 	struct directory_entry zero_entkey;
 	uint8_t zerokey[KEY_SIZE];
 	uint16_t index[256][256];
-	char leadin[256];
+	char leadin[MAX_FILENAME_LEN];
 	int leadinDepth;
 	PLINKQUEUE plqCrypters;
 	PLIST volumes;
 	LOGICAL exited;
 	PVFS_OS_FILESET files;
+ // symbol not defined
+#ifdef DEBUG_CONVERT_DIRECTORY
+	int fileCount;
+	int fileCount_old;
+#endif
 } l;
 //static void _os_UpdateFileBlocks( struct sack_vfs_os_file* file );
 static struct sack_vfs_os_file* _os_createFile( struct sack_vfs_os_volume* vol, BLOCKINDEX first_block, int blockSize );
 static int sack_vfs_os_close_internal( struct sack_vfs_os_file* file, int unlock );
-static enum block_cache_entries _os_UpdateSegmentKey_( struct sack_vfs_os_volume* vol, enum block_cache_entries cache_idx, BLOCKINDEX segment DBG_PASS );
+static enum block_cache_entries _os_UpdateSegmentKey_( struct sack_vfs_os_volume* vol, enum block_cache_entries* cache_idx, BLOCKINDEX segment DBG_PASS );
 static uint32_t _os_AddSmallBlockUsage( struct file_block_small_definition* block, uint32_t more );
+#ifdef DEBUG_DIRECTORIES
+static int _os_dumpDirectories( struct sack_vfs_os_volume *vol, BLOCKINDEX start, LOGICAL init );
+#endif
 //#include "vfs_os_index.c"
 static void _os_SetSmallBlockUsage( struct file_block_small_definition* block, int more ) {
 	block->used = more;
@@ -63631,8 +58285,12 @@ ATEXIT( flushVolumes ){
 	LIST_FORALL( l.volumes, idx, struct sack_vfs_os_volume*, vol ) {
 		if( vol->file )
 		sack_vfs_os_flush_volume( vol, TRUE );
+#ifdef DEBUG_DIRECTORIES
+		_os_dumpDirectories( vol, 0, 1 );
+#endif
 	}
 }
+#if 0
 #define FILE_BLOCK_SEALANT 0
 #define FILE_BLOCK_REFERENCES 1
 #define FILE_BLOCK_DATA 2
@@ -63667,6 +58325,7 @@ static void _os_SetLargeBlockUsage( struct file_block_large_definition* block, u
 	while( block->avail < block->used )
 		block->avail = ( block->used + BLOCK_SIZE ) & BLOCK_MASK;
 }
+#endif
 static void _os_ExtendBlockChain( struct sack_vfs_os_file* file ) {
 	int newSize = ( file->blockChainAvail ) * 2 + 1;
 	file->blockChain = ( struct blockInfo*)Reallocate( file->blockChain, newSize * sizeof( struct blockInfo ) );
@@ -63730,7 +58389,7 @@ static void _os_SetBlockChain( struct sack_vfs_os_file* file, FPI fpi, BLOCKINDE
 	file->blockChain[fileBlock].start = fpi;
 }
 // seek by byte position from a starting block; as file; result with an offset into a block.
-uintptr_t vfs_os_FSEEK( struct sack_vfs_os_volume *vol
+uintptr_t vfs_os_FSEEK_v2( struct sack_vfs_os_volume *vol
   // if no file, first block must be manually specified
 	, struct sack_vfs_os_file *file
   // if file, firstblock comes from the file
@@ -63741,10 +58400,16 @@ uintptr_t vfs_os_FSEEK( struct sack_vfs_os_volume *vol
 	, enum block_cache_entries *cache_index
    // if a new block is needed, use this size to allocate.
 	, int blockSize
+ // where the new block ( if any) is updated;
+	, LOGICAL flush_BAT_caches
 	DBG_PASS
 )
 {
+#ifdef DEBUG_FILE_SEEK
+	LoG_( "File Seek: %p %d %d", file, (int)offset, cache_index[0] );
+#endif
 	enum block_cache_entries cacheRoot = cache_index[0];
+	size_t priorSize;
 	uint8_t *data;
 	FPI pos = 0;
 	if( file ) {
@@ -63753,11 +58418,13 @@ uintptr_t vfs_os_FSEEK( struct sack_vfs_os_volume *vol
 			firstblock = file->blockChain[chainBlock].block;
 			pos = file->blockChain[chainBlock].start;
 			offset -= pos;
+			priorSize = file->blockChain[chainBlock].size;
 		} else {
 			if( file->blockChainLength ) {
 				if( offset >= file->blockChain[file->blockChainLength - 1].start ) {
 					firstblock = file->blockChain[file->blockChainLength - 1].block;
 					offset -= ( pos = file->blockChain[file->blockChainLength - 1].start );
+					priorSize = file->blockChain[file->blockChainLength - 1].size;
 				}
 				else {
 					lprintf( "Should have found a block for this offset before here." );
@@ -63766,37 +58433,60 @@ uintptr_t vfs_os_FSEEK( struct sack_vfs_os_volume *vol
 			}
 			else {
 				firstblock = file->_first_block;
+				priorSize = vol->sector_size[cache_index[0]];
+				cache_index[0] = cacheRoot;
 			}
+		}
+	} else priorSize = blockSize;
+	while( firstblock != EOFBLOCK && offset >= priorSize ) {
+		int size;
+		enum block_cache_entries cache =
+				file ?
+#ifdef XX_VIRTUAL_OBJECT_STORE
+			file->fileName ? BC( FILE ) :
+#endif
+			file->cache: cacheRoot;
+#ifdef DEBUG_FILE_SEEK
+		LoG_( "Getting next block after %p %d %d", file, firstblock, blockSize );
+#endif
+		firstblock = vfs_os_GetNextBlock_v2( vol, firstblock
+			, &cache
+			, file?
+#ifdef XX_VIRTUAL_OBJECT_STORE
+			file->fileName?GFB_INIT_NONE:
+#endif
+			GFB_INIT_TIMELINE_MORE:GFB_INIT_NAMES, 1, blockSize, &size, flush_BAT_caches );
+		if( size != blockSize ) {
+			lprintf( "Tried to allocate %d got %d at %d (from %d)", blockSize, size, *cache_index, cacheRoot );
+			DebugBreak();
+		}
+		offset -= priorSize;
+		pos += priorSize;
+		priorSize = size;
+		if( file ) {
+			_os_SetBlockChain( file, pos, firstblock, size );
 		}
 	}
 	data = (uint8_t*)vfs_os_BSEEK_( vol, firstblock, blockSize, cache_index DBG_RELAY );
-	while( firstblock != EOFBLOCK && offset >= vol->sector_size[*cache_index] ) {
-		int size;
-		enum block_cache_entries cache = file ? file->fileName ? BC( FILE ) : file->cache: cacheRoot;
-		firstblock = vfs_os_GetNextBlock( vol, firstblock
-			, &cache
-			, file?file->fileName?GFB_INIT_NONE:GFB_INIT_TIMELINE_MORE:GFB_INIT_NAMES, 1, blockSize, &size );
-		if( size != blockSize ) {
-			lprintf( "Tried to allocate %d got %d at %d (from %d)", blockSize, vol->sector_size[*cache_index], *cache_index, cacheRoot );
-			DebugBreak();
-		}
-		// have to re-load the sector key after getting a new block.
-		vol->sector_size[cache] = size;
-		cache_index[0] = cache;
-// (uint8_t*)vfs_os_BSEEK_( vol, firstblock, blockSize, cache_index DBG_RELAY );
-		data = vol->usekey_buffer[cache];
-		offset -= vol->sector_size[*cache_index];
-		pos += vol->sector_size[*cache_index];
-		//LoG( "Skipping a whole block of 'file' %d %d", firstblock, offset );
-		// this only follows the chain in the BAT; it does not load the sector into memory(?)
-		if( file ) {
-			//if( !file->fileName ) LoG( "Set timeline block chain at %d to %d", (int)pos, (int)firstblock );
-			_os_SetBlockChain( file, pos, firstblock, size );
-		}
-		cache_index[0] = cacheRoot;
-		data = (uint8_t*)vfs_os_BSEEK_( vol, firstblock, blockSize, cache_index DBG_RELAY );
-	}
+#if DEBUG_SET_SECTOR_SIZE
+	LoG_( "Sector size: %p (ss)%d (blk)%d (ofs)%d (cache)%d",data, priorSize, (int)firstblock, (int)offset , cache_index[0] );
+#endif
 	return (uintptr_t)(data + (offset));
+}
+uintptr_t vfs_os_FSEEK( struct sack_vfs_os_volume* vol
+  // if no file, first block must be manually specified
+	, struct sack_vfs_os_file* file
+  // if file, firstblock comes from the file
+	, BLOCKINDEX firstblock
+    // offset in the block-chain from the specified start
+	, FPI offset
+  // this is the cache entry that the data was loaded into
+	, enum block_cache_entries* cache_index
+   // if a new block is needed, use this size to allocate.
+	, int blockSize
+	DBG_PASS
+) {
+	return vfs_os_FSEEK_v2( vol, file, firstblock, offset, cache_index, blockSize, FALSE DBG_RELAY );
 }
 static void vfs_os_empty_rollback( struct sack_vfs_os_volume* vol ) {
 	enum block_cache_entries rollbackCache = BC( ROLLBACK );
@@ -63806,6 +58496,7 @@ static void vfs_os_empty_rollback( struct sack_vfs_os_volume* vol ) {
 #endif
 	if( rollback->flags.dirty ) {
 		vol->journal.pdlJournaled->Cnt = 0;
+		vol->journal.journalLength = 0;
 		rollback->flags.dirty = 0;
 		rollback->nextBlock = 0;
 		rollback->nextSmallBlock = 0;
@@ -63814,30 +58505,77 @@ static void vfs_os_empty_rollback( struct sack_vfs_os_volume* vol ) {
 		sack_vfs_os_flush_block( vol, rollbackCache );
 	}
 }
+//---------------------------------------------------------------------------
+static void ExpandJournalIndex(struct vfs_os_rollback_journal *journal ) {
+ // sectors that are in rollback already
+	BLOCKINDEX *pNewJournaled;
+	//int journalLength; // how long pJournaled is used
+	//int journalAvail; // max length of pJournaled
+	journal->journalAvail = journal->journalAvail*2+1;
+	pNewJournaled = NewArray( BLOCKINDEX,	 journal->journalAvail );
+	MemCpy( pNewJournaled, journal->pJournaled, journal->journalLength * sizeof( *pNewJournaled ) );
+	Release( journal->pJournaled );
+	journal->pJournaled = pNewJournaled;
+}
+//---------------------------------------------------------------------------
 static void vfs_os_record_rollback( struct sack_vfs_os_volume* vol, enum block_cache_entries entry ) {
 	INDEX nextRecord = 0;
+	INDEX curIdx = 0;
+	BLOCKINDEX segment = vol->segment[entry];
 	if( entry >= BC( ROLLBACK ) ) {
 		return;
 	}
 	// not setup to journal yet (initial loading/configuration)
 	if( !vol->journal.rollback_file ) {
 		//lprintf( "Journal is not a file... bad open? Unjournaled storage?");
+		//AddLink( &vol->pending_rollback, (uintptr_t)entry );
+		sack_vfs_os_flush_block( vol, entry );
 		return;
 	}
+	if( vol->journal.journalLength )
 	{
-		INDEX idx;
-		BLOCKINDEX* check;
-		BLOCKINDEX check2= vol->segment[entry];
-		DATA_FORALL( vol->journal.pdlJournaled, idx, BLOCKINDEX*, check ) {
-			if( check[0] == check2 ) {
+		int imin = 0;
+		int imax = vol->journal.journalLength-1;
+		if( segment < vol->journal.pJournaled[imax] )
+		{
+			curIdx = imax >> 1;
+			while( imin <= imax && ( curIdx <= imax ) && ( imax >= 0 ) ) {
+				int d;
+				//LoG( "this name: %s", names );
+				if( ( d = (int)(segment - vol->journal.pJournaled[curIdx] ) ) == 0  ) {
+					return;
+				}
+				if( d > 0 ) {
+					imin = (int)curIdx + 1;
+				} else {
+					if( !curIdx ) break;
+					imax = (int)curIdx - 1;
+				}
+				curIdx = (imin + imax) >> 1;
+			}
+		}
+		else if( segment == vol->journal.pJournaled[imax] )
+ // is already saved as the last.
+			return;
+		else
+			curIdx = imax;
+		if( 0 )
+		{
+			INDEX idx;
+			BLOCKINDEX* check;
+			DATA_FORALL( vol->journal.pdlJournaled, idx, BLOCKINDEX*, check ) {
+				if( check[0] == segment ) {
 #ifdef DEBUG_ROLLBACK_JOURNAL
-				LoG( "Journal recording already has this sector marked %d %d", idx, check2 );
+					LoG( "Journal recording already has this sector marked %d %d", idx, segment );
 #endif
-				return;
+					return;
+				}
 			}
 		}
 	}
+#ifdef DEBUG_ROLLBACK_JOURNAL
 	LoG( "Recording rollback for %d %d", (int)entry, (int)vol->segment[entry] );
+#endif
 	if( vol->journal.pdlPendingRecord->Cnt ) {
 		// is already in-progress, record that this should be done later.
 		AddDataItem( &vol->journal.pdlPendingRecord, &entry );
@@ -63845,7 +58583,47 @@ static void vfs_os_record_rollback( struct sack_vfs_os_volume* vol, enum block_c
 	}
 	// mark in-progress.
 	AddDataItem( &vol->journal.pdlPendingRecord, &entry );
-	AddDataItem( &vol->journal.pdlJournaled, &vol->segment[entry] );
+	{
+		if( (vol->journal.journalLength+1) >= vol->journal.journalAvail ) ExpandJournalIndex( &vol->journal );
+		if( curIdx >= vol->journal.journalLength ) {
+			if( curIdx && ( segment < vol->journal.pJournaled[curIdx-1] ) )  {
+				vol->journal.pJournaled[curIdx] = vol->journal.pJournaled[curIdx-1];
+				vol->journal.pJournaled[curIdx-1] = segment;
+				vol->journal.journalLength++;
+			}else {
+				vol->journal.pJournaled[curIdx] = segment;
+				vol->journal.journalLength++;
+			}
+		} else {
+			if( segment < vol->journal.pJournaled[curIdx] ){
+				if( curIdx ) {
+					if( segment > vol->journal.pJournaled[curIdx-1] ){
+						for( int n = vol->journal.journalLength; n > curIdx; n-- ) {
+							vol->journal.pJournaled[n] = vol->journal.pJournaled[n-1];
+						}
+					}
+					else lprintf( "segment is bad" );
+				}else {
+					for( int n = vol->journal.journalLength; n > curIdx; n-- ) {
+						vol->journal.pJournaled[n] = vol->journal.pJournaled[n-1];
+					}
+				}
+			}
+			else if( segment > vol->journal.pJournaled[curIdx] ){
+				if( curIdx + 1 >= vol->journal.journalLength ) {
+					curIdx = curIdx+1;
+				} else {
+					while( segment > vol->journal.pJournaled[curIdx] ) curIdx++;
+					for( int n = vol->journal.journalLength; n > (curIdx); n-- ) {
+						vol->journal.pJournaled[n] = vol->journal.pJournaled[n-1];
+					}
+				}
+			}
+			vol->journal.pJournaled[curIdx] = segment;
+			vol->journal.journalLength++;
+		}
+	}
+	//AddDataItem( &vol->journal.pdlJournaled, &segment );
 	enum block_cache_entries rollbackCache = BC( ROLLBACK );
 	struct vfs_os_rollback_header* rollback = ( struct vfs_os_rollback_header* )vfs_os_FSEEK( vol, vol->journal.rollback_file, 0, 0, &rollbackCache, ROLLBACK_BLOCK_SIZE DBG_SRC );
  // don't journal recovery.
@@ -63859,11 +58637,11 @@ static void vfs_os_record_rollback( struct sack_vfs_os_volume* vol, enum block_c
 		POINTER journal;
 		rollbackEntryCache = BC( ROLLBACK );
 #ifdef DEBUG_ROLLBACK_JOURNAL
-		LoG( "Record to journal: e: %d seg:%d  ne: %d  at %d", entry, vol->segment[entry], rollback->nextEntry, sane_offsetof( struct vfs_os_rollback_header, entries[rollback->nextEntry++]) );
+		LoG( "Record to journal: e: %d fpi:%x seg:%d  ne: %d  at %d", entry, (int)vol->bufferFPI[entry], (int)vol->segment[entry], rollback->nextEntry, sane_offsetof( struct vfs_os_rollback_header, entries[rollback->nextEntry]) );
 #endif
-		rollbackEntry = (struct vfs_os_rollback_entry*)vfs_os_FSEEK( vol, vol->journal.rollback_file, 0
+		rollbackEntry = (struct vfs_os_rollback_entry*)vfs_os_FSEEK_v2( vol, vol->journal.rollback_file, 0
 			, sane_offsetof( struct vfs_os_rollback_header, entries[rollback->nextEntry++] )
-			, &rollbackEntryCache, ROLLBACK_BLOCK_SIZE DBG_SRC );
+			, &rollbackEntryCache, ROLLBACK_BLOCK_SIZE, FALSE DBG_SRC );
 		rollbackEntry->fileBlock = vol->segment[entry];
 		rollbackCacheJournal = BC( ROLLBACK );
 		if( vol->sector_size[entry] == BLOCK_SIZE ) {
@@ -63877,7 +58655,7 @@ static void vfs_os_record_rollback( struct sack_vfs_os_volume* vol, enum block_c
 				LoG( "Found non 0 at: %d  %d", n, p[0] );
 				LoG( "Saving large, clean block" );
 #endif
-				journal = (POINTER)vfs_os_FSEEK( vol, vol->journal.rollback_journal_file, 0, vol->sector_size[entry] * rollback->nextBlock++, &rollbackCacheJournal, vol->sector_size[entry] DBG_SRC );
+				journal = (POINTER)vfs_os_FSEEK_v2( vol, vol->journal.rollback_journal_file, 0, vol->sector_size[entry] * rollback->nextBlock++, &rollbackCacheJournal, vol->sector_size[entry], TRUE DBG_SRC );
 			}  else {
 #ifdef DEBUG_ROLLBACK_JOURNAL
 				LoG( "Save as large zero" );
@@ -63895,7 +58673,7 @@ static void vfs_os_record_rollback( struct sack_vfs_os_volume* vol, enum block_c
 				LoG( "Found non 0 at: %d  %d", n, p[0] );
 				LoG( "Saving small, clean block" );
 #endif
-				journal = (POINTER)vfs_os_FSEEK( vol, vol->journal.rollback_small_journal_file, 0, vol->sector_size[entry] * rollback->nextSmallBlock++, &rollbackCacheJournal, vol->sector_size[entry] DBG_SRC );
+				journal = (POINTER)vfs_os_FSEEK_v2( vol, vol->journal.rollback_small_journal_file, 0, vol->sector_size[entry] * rollback->nextSmallBlock++, &rollbackCacheJournal, vol->sector_size[entry], TRUE DBG_SRC );
 			} else {
 #ifdef DEBUG_ROLLBACK_JOURNAL
 				LoG( "Save as small zero" );
@@ -63920,6 +58698,14 @@ static void vfs_os_record_rollback( struct sack_vfs_os_volume* vol, enum block_c
 			//vol->journal.pdlJournaled->Cnt = 0; // empty the list.
 		}
 	} while( vol->journal.pdlPendingRecord->Cnt );
+	{
+		int n;
+		BLOCKINDEX prior = vol->journal.pJournaled[0];
+		for( n = 1; n < vol->journal.journalLength; n++ ) {
+			if( vol->journal.pJournaled[n] < prior ) DebugBreak();
+			prior = vol->journal.pJournaled[n];
+		}
+	}
 	SMUDGECACHE( vol, rollbackCache );
 	sack_vfs_os_flush_block( vol, rollbackCache );
 }
@@ -63943,7 +58729,7 @@ static void vfs_os_process_rollback( struct sack_vfs_os_volume* vol ) {
 		BLOCKINDEX bigSector = 0;
 		BLOCKINDEX smallSector = 0;
 		struct BATInfo {
-			BLOCKINDEX block;
+			struct vfs_os_rollback_entry entry;
 			BLOCKINDEX bigSector;
 		};
 		PDATALIST pdlBATs = CreateDataList( sizeof( struct BATInfo ) );
@@ -63966,38 +58752,65 @@ static void vfs_os_process_rollback( struct sack_vfs_os_volume* vol ) {
 				// defer restoring BAT blocks until end;
 				// the journal itself may exist in the dirty blocks already in the image.
 				struct BATInfo info;
-				info.block = rollbackEntry->fileBlock;
+				info.entry = rollbackEntry[0];
 				info.bigSector = bigSector++;
 				AddDataItem( &pdlBATs, &info );
 				continue;
 			}
-			LoG( "Reading rollback fileblock:%d", rollbackEntry->fileBlock );
-			entry = _os_UpdateSegmentKey_( vol, BC( ROLLBACK ), rollbackEntry->fileBlock DBG_SRC );
+#ifdef DEBUG_ROLLBACK_JOURNAL
+			LoG( "Reading rollback fileblock:%d %s", rollbackEntry->fileBlock, rollbackEntry->flags.zero ? "Empty" : "" );
+#endif
+			entry = BC( ROLLBACK );
+			_os_UpdateSegmentKey_( vol, &entry, rollbackEntry->fileBlock DBG_SRC );
 			vol->sector_size[entry] = rollbackEntry->flags.small ? BLOCK_SMALL_SIZE : BLOCK_SIZE;
 			if( rollbackEntry->flags.zero ) {
 				memset( vol->usekey_buffer[entry], 0, rollbackEntry->flags.small ? BLOCK_SMALL_SIZE : BLOCK_SIZE );
 			}
 			else {
+				int useSize;
 				rollbackCacheJournal = BC( ROLLBACK );
 				if( !rollbackEntry->flags.small ) {
 					journal = (POINTER)vfs_os_FSEEK( vol, vol->journal.rollback_journal_file, 0
 						, BLOCK_SIZE * bigSector++, &rollbackCacheJournal, BLOCK_SIZE DBG_SRC );
-					memcpy( vol->usekey_buffer[entry], journal, BLOCK_SIZE );
+#ifdef DEBUG_ROLLBACK_JOURNAL
+					if( memcmp( vol->usekey_buffer[entry], journal, BLOCK_SIZE ) == 1 ) {
+						LoG( "Journal is actually updating data..." );
+					}
+#endif
+					memcpy( vol->usekey_buffer[entry], journal, useSize = BLOCK_SIZE );
 				}
 				else {
 					journal = (POINTER)vfs_os_FSEEK( vol, vol->journal.rollback_small_journal_file, 0
 						, BLOCK_SMALL_SIZE * smallSector++, &rollbackCacheJournal, BLOCK_SMALL_SIZE DBG_SRC );
-					memcpy( vol->usekey_buffer[entry], journal, BLOCK_SMALL_SIZE );
+#ifdef DEBUG_ROLLBACK_JOURNAL
+					if( memcmp( vol->usekey_buffer[entry], journal, BLOCK_SMALL_SIZE ) == 1 ) {
+						LoG( "Journal is actually updating data..." );
+					}
+#endif
+					memcpy( vol->usekey_buffer[entry], journal, useSize = BLOCK_SMALL_SIZE );
+				}
+				{
+					int seg;
+					for( seg = 0; seg < BC( ROLLBACK ); seg++ ) {
+						if( vol->segment[seg] == rollbackEntry->fileBlock ) {
+							//lprintf( "Duplicate! %d", vol->segment[seg] );
+							memcpy( vol->usekey_buffer[seg], vol->usekey_buffer[entry], useSize );
+							memcpy( vol->usekey_buffer_clean[seg], vol->usekey_buffer[entry], useSize );
+						}
+					}
 				}
 			}
 			SMUDGECACHE( vol, entry );
 		}
+		// finally, clear the BAT entries with any existing bat sectors
 		{
 			struct BATInfo *info;
 			DATA_FORALL( pdlBATs, e, struct BATInfo*, info ) {
-				entry = _os_UpdateSegmentKey_( vol, BC( ROLLBACK ), info->block DBG_SRC );
-				vol->sector_size[entry] = rollbackEntry->flags.small ? BLOCK_SMALL_SIZE : BLOCK_SIZE;
-				if( rollbackEntry->flags.zero ) {
+				entry = BC( ROLLBACK );
+				_os_UpdateSegmentKey_( vol, &entry, info->entry.fileBlock DBG_SRC );
+				// BATs are always not-small blocks.
+				vol->sector_size[entry] = BLOCK_SIZE;
+				if( info->entry.flags.zero ) {
 					// might happen later; usually these are non-zero filled
 					memset( vol->usekey_buffer[entry], 0, BLOCK_SIZE );
 				}
@@ -64006,6 +58819,17 @@ static void vfs_os_process_rollback( struct sack_vfs_os_volume* vol ) {
 					journal = (POINTER)vfs_os_FSEEK( vol, vol->journal.rollback_journal_file, 0
 						, BLOCK_SIZE * info->bigSector++, &rollbackCacheJournal, BLOCK_SIZE DBG_SRC );
 					memcpy( vol->usekey_buffer[entry], journal, BLOCK_SIZE );
+					memcpy( vol->usekey_buffer_clean[entry], journal, BLOCK_SIZE );
+				}
+				{
+					int seg;
+					for( seg = 0; seg < BC( ROLLBACK ); seg++ ) {
+						if( vol->segment[seg] == info->entry.fileBlock ) {
+							//lprintf( "Duplicate! %d", vol->segment[seg] );
+							memcpy( vol->usekey_buffer[seg], vol->usekey_buffer[entry], BLOCK_SIZE );
+							memcpy( vol->usekey_buffer_clean[seg], vol->usekey_buffer[entry], BLOCK_SIZE );
+						}
+					}
 				}
 			}
 			DeleteDataList( &pdlBATs );
@@ -64028,9 +58852,9 @@ void vfs_os_smudge_cache( struct sack_vfs_os_volume* vol, enum block_cache_entri
 #ifdef DEBUG_SECTOR_DIRT
 		lprintf( "set dirty on %d", n);
 #endif
+		SETFLAG( vol->dirty, n );
 		if( !TESTFLAG( vol->_dirty, n ) )
 			vfs_os_record_rollback( vol, n );
-		SETFLAG( vol->dirty, n );
 	}
 }
 // pass absolute, 0 based, block number that is the index of the block in the filesystem.
@@ -64038,18 +58862,32 @@ static FPI vfs_os_compute_block( struct sack_vfs_os_volume *vol, BLOCKINDEX bloc
 	struct sack_vfs_os_BAT_info *info;
 	INDEX idx = block / BLOCKS_PER_SECTOR;
 	info = (struct sack_vfs_os_BAT_info*)GetDataItem( &vol->pdl_BAT_information, idx );
-	if( !info ) return ~0;
+	if( !info ) {
+		if( !block ) return 0;
+		else {
+			info = (struct sack_vfs_os_BAT_info*)GetDataItem( &vol->pdl_BAT_information, idx-1 );
+			if( info )
+				return info->sectorEnd;
+		}
+		return ~0;
+	}
 	{
  // not reading a BAT, add the fixed offset, 0 based data offset
 		if( block % BLOCKS_PER_SECTOR ) {
-			if( cache < BC(COUNT) )
-				vol->sector_size[cache] = info->size;
+			//if( cache < BC(COUNT) )
+#if defined( DEBUG_SET_SECTOR_SIZE )
+			LoG( "Setting sector size according to BAT information:%d %d %d %d", info->size, (int)block, (cache<BC(COUNT))?(int)vol->segment[cache]:0, (int)cache );
+#endif
+//lprintf( "CACHE OVERFLOW not setting info %d", info->size );
+			if( cache >= BC(COUNT) ) ;
+			else vol->sector_size[cache] = info->size;
 			// the first 'block' is always bat size, so add that, and then the remaining
 			// smaller blocks...
 			return info->sectorStart + BAT_BLOCK_SIZE + ( ( block % BLOCKS_PER_SECTOR ) - 1 ) * info->size;
 		} else {
-			if( cache < BC(COUNT) )
-				vol->sector_size[cache] = BAT_BLOCK_SIZE;
+//lprintf( "CACHE OVERFLOW skipping size(BAT)" );
+			if( cache >= BC(COUNT) ) ;
+			else vol->sector_size[cache] = BAT_BLOCK_SIZE;
 			return info->sectorStart;
 		}
 	}
@@ -64085,7 +58923,7 @@ static int  _os_PathCaseCmpEx ( CTEXTSTR s1, CTEXTSTR s2, size_t maxlen )
 	for( ;s1[0] && ((unsigned char)s2[0] != UTF8_EOT) && (s1[0] == s2[0]) && maxlen;
 		  s1++, s2++, maxlen-- );
 	if( maxlen )
-		return tolower_(s1[0]) - (((unsigned char)s2[0] == UTF8_EOT)?0:tolower_(s2[0]));
+		return s1[0] - (((unsigned char)s2[0] == UTF8_EOT)?0:s2[0]);
 	return 0;
 }
 // read the byte from namespace at offset; decrypt byte in-register
@@ -64129,24 +58967,28 @@ static void _os_MaskStrCpy( char *output, size_t outlen, struct sack_vfs_os_volu
 }
 #endif
 #ifdef DEBUG_DIRECTORIES
-static int _os_dumpDirectories( struct sack_vfs_os_volume *vol, BLOCKINDEX start, LOGICAL init ) {
+int _os_dumpDirectories( struct sack_vfs_os_volume *vol, BLOCKINDEX start, LOGICAL init ) {
 	struct directory_hash_lookup_block *dirBlock;
 	struct directory_entry *next_entries;
-	static char leadin[256];
+	static char leadin[MAX_FILENAME_LEN];
 	static int leadinDepth;
-	char outfilename[256];
+	char outfilename[MAX_FILENAME_LEN];
 	int outfilenamelen;
 	size_t n;
 	if( init )
 		leadinDepth = 0;
+	LoG( "Starting directory dump: %d %d", start, init );
 	{
 		enum block_cache_entries cache = BC( DIRECTORY );
 		enum block_cache_entries name_cache = BC( NAMES );
-		dirBlock = BTSEEK( struct directory_hash_lookup_block *, vol, start, 0, cache );
-		lprintf( "leadin : %*.*s %d %d", leadinDepth, leadinDepth, leadin, leadinDepth, dirBlock->used_names);
+		struct directory_hash_lookup_block _dirBlock;
+		dirBlock = BTSEEK( struct directory_hash_lookup_block *, vol, start, DIR_BLOCK_SIZE, cache );
+		_dirBlock = dirBlock[0];
+		dirBlock = &_dirBlock;
+		lprintf( "leadin : %*.*s %d names:%d start:%d", leadinDepth, leadinDepth, leadin, leadinDepth, dirBlock->used_names, (int)start );
 		next_entries = dirBlock->entries;
 		for( n = 0; n < dirBlock->used_names; n++ ) {
-			FPI name_ofs = next_entries[n].name_offset;
+			FPI name_ofs = next_entries[n].name_offset & DIRENT_NAME_OFFSET_OFFSET;
 			const char *filename;
 			int l;
 			// if file is deleted; don't check it's name.
@@ -64161,26 +59003,38 @@ static int _os_dumpDirectories( struct sack_vfs_os_volume *vol, BLOCKINDEX start
 			for( l = 0; l < leadinDepth; l++ ) outfilename[outfilenamelen++] = leadin[l];
 			if( vol->key ) {
 				int c;
-				while( (c = (((uint8_t*)filename)[0] )) ) {
+				while( (c = (((uint8_t*)filename)[0] )) != UTF8_EOT ) {
+					if( c == UTF8_EOTB ) break;
 					outfilename[outfilenamelen++] = c;
-					filename++;
+					//filename++;
 					name_ofs++;
+					name_cache = BC( NAMES );
+					filename = (const char *)vfs_os_FSEEK( vol, NULL, dirBlock->names_first_block, name_ofs, &name_cache, NAME_BLOCK_SIZE DBG_SRC );
 				}
-				outfilename[outfilenamelen] = c;
 			}
 			else {
-				StrCpy( outfilename + outfilenamelen, filename );
+				int c;
+				while( (c = (((uint8_t*)filename)[0] )) != UTF8_EOT ) {
+					if( c == UTF8_EOTB ) break;
+					outfilename[outfilenamelen++] = c;
+					//filename++;
+					name_ofs++;
+					name_cache = BC( NAMES );
+					filename = (const char *)vfs_os_FSEEK( vol, NULL, dirBlock->names_first_block, name_ofs, &name_cache, NAME_BLOCK_SIZE DBG_SRC );
+				}
 			}
-			//if( strlen( outfilename ) < 40 ) DebugBreak();
-			lprintf( "%3d filename: %5d %s", n, name_ofs, outfilename );
+			lprintf( "%3d filename: %5d %.*s", n, next_entries[n].name_offset & DIRENT_NAME_OFFSET_OFFSET, outfilenamelen, outfilename );
+			if( outfilenamelen > 44 ) DebugBreak();
 		}
 		for( n = 0; n < 255; n++ ) {
 			BLOCKINDEX block = dirBlock->next_block[n];
 			if( block ) {
-				lprintf( "Found directory with char '%c'", n );
+				lprintf( "Found directory with char '%c' %d", n, block );
 				leadin[leadinDepth] = (char)n;
 				leadinDepth = leadinDepth + 1;
+#ifdef DEBUG_DIRECTORIES
 				_os_dumpDirectories( vol, block, 0 );
+#endif
 				leadinDepth = leadinDepth - 1;
 			}
 		}
@@ -64217,17 +59071,6 @@ static void _os_updateCacheAge_( struct sack_vfs_os_volume *vol, enum block_cach
 		break;
 	}
 #endif
-#ifdef DEBUG_CACHE_AGING
-	lprintf( "age start:" );
-	LogBinary( age, ageLength );
-	{
-		int z;
-		char buf[256];
-		int ofs = 0;
-		for( z = 0; z < ageLength; z++ ) ofs += snprintf( buf + ofs, 256 - ofs, "%x ", vol->bufferFPI[z+ cacheRoot] );
-		lprintf( "%s", buf );
-	}
-#endif
 	for( n = 0; n < (ageLength); n++,test_segment++ ) {
 		if( test_segment[0] == segment ) {
 			//if( pFile ) LoG_( "Cache found existing segment already. %d at %d(%d)", (int)segment, (cache_idx[0]+n), (int)n );
@@ -64238,14 +59081,11 @@ static void _os_updateCacheAge_( struct sack_vfs_os_volume *vol, enum block_cach
 			cache_idx[0] = (enum block_cache_entries)((cache_idx[0]) + n);
 			for( m = 0; m < (ageLength); m++ ) {
 				if( !age[m] ) break;
-				if( age[m] > age[n] )
+				if( age[m] > age[n] ) {
 					age[m]--;
+				}
 			}
 			age[n] = m;
-#ifdef DEBUG_CACHE_AGING
-			lprintf( "age end:" );
-			LogBinary( age, ageLength );
-#endif
 			return;
 			//break;
 		}
@@ -64287,33 +59127,36 @@ static void _os_updateCacheAge_( struct sack_vfs_os_volume *vol, enum block_cach
 		cache_idx[0] = (enum block_cache_entries)useCache;
  // make this one the newest, and return it.
 		age[nLeast] = (ageLength);
-		vol->segment[useCache] = segment;
 		//_lprintf(DBG_RELAY)( "reclaim %d for seg %d", useCache, segment );
 		if( TESTFLAG( vol->dirty, useCache ) || TESTFLAG( vol->_dirty, useCache ) ) {
 #ifdef DEBUG_DISK_IO
-			LoG_( "MUST CLAIM SEGMENT Flush dirty segment: %d %x %d", nLeast, vol->bufferFPI[useCache], vol->segment[useCache] );
+			LoG_( "MUST CLAIM SEGMENT Flush dirty segment: %d fpi:%x %d cache:%d", nLeast, vol->bufferFPI[useCache], vol->segment[useCache], useCache );
 #  ifdef DEBUG_DISK_DATA
 			LogBinary( vol->usekey_buffer[useCache], vol->sector_size[useCache] );
 #  endif
 #endif
-			uint8_t *crypt;
-			size_t cryptlen;
 			sack_fseek( vol->file, (size_t)vol->bufferFPI[useCache], SEEK_SET );
 			if( vol->key ) {
+				uint8_t* crypt;
+				size_t cryptlen;
 				SRG_XSWS_encryptData( vol->usekey_buffer[useCache], vol->sector_size[useCache]
 					, vol->segment[useCache], (const uint8_t*)vol->key, 1024
 					, &crypt, &cryptlen );
-				sack_fwrite( crypt, 1, vol->sector_size[useCache], vol->file );
+				if( !vol->flags.halted )
+					sack_fwrite( crypt, 1, vol->sector_size[useCache], vol->file );
 				Deallocate( uint8_t*, crypt );
-			}else
-				sack_fwrite( vol->usekey_buffer[useCache], 1, vol->sector_size[useCache], vol->file );
-			//vfs_os_record_rollback( vol, cache_idx[0] );
-			memcpy( vol->usekey_buffer_clean[cache_idx[0]], vol->usekey_buffer[cache_idx[0]], BLOCK_SIZE );
+			}else {
+				if( !vol->flags.halted )
+					sack_fwrite( vol->usekey_buffer[useCache], 1, vol->sector_size[useCache], vol->file );
+			}
 #ifdef DEBUG_CACHE_FLUSH
+			// if not dirty, then clean and buffer have to match; and this is clearing the dirty flag
+			memcpy( vol->usekey_buffer_clean[useCache], vol->usekey_buffer[useCache], BLOCK_SIZE );
 #  ifdef DEBUG_VALIDATE_TREE
-			if( cache_idx[0] < BC( TIMELINE_RO ) )
+ // timeline cache is noisy for readonly
+			if( useCache < BC( TIMELINE_RO ) )
 #  endif
-				_lprintf(DBG_RELAY)( "Updated clean buffer %d", cache_idx[0] );
+				_lprintf(DBG_RELAY)( "(usedto)Updated clean buffer %d", useCache );
 #endif
 			CLEANCACHE( vol, useCache );
 			RESETFLAG( vol->_dirty, useCache );
@@ -64331,6 +59174,7 @@ static void _os_updateCacheAge_( struct sack_vfs_os_volume *vol, enum block_cach
 #endif
 		}
 #endif
+		vol->segment[useCache] = segment;
 	}
 #ifdef DEBUG_VALIDATE_TREE
 	//if( cache_idx[0] < BC(TIMELINE_RO) )
@@ -64347,21 +59191,32 @@ static void _os_updateCacheAge_( struct sack_vfs_os_volume *vol, enum block_cach
 	}
 #endif
 	{
-		vol->bufferFPI[cache_idx[0]] = vfs_os_compute_block( vol, segment - 1, cache_idx[0] );
-		if( vol->bufferFPI[cache_idx[0]] >= vol->dwSize ) _os_ExpandVolume( vol, vol->lastBlock, vol->sector_size[cache_idx[0]] );
+		size_t short_Read;
+		do {
+			vol->bufferFPI[cache_idx[0]] = vfs_os_compute_block( vol, segment - 1, cache_idx[0] );
+			if( vol->bufferFPI[cache_idx[0]] == ~0 )
+				_os_ExpandVolume( vol, vol->lastBlock, vol->sector_size[cache_idx[0]] );
+		} while( vol->bufferFPI[cache_idx[0]] == ~0 );
 		// read new buffer for new segment
 		sack_fseek( vol->file, (size_t)vol->bufferFPI[cache_idx[0]], SEEK_SET );
 #ifdef DEBUG_DISK_IO
-		LoG_( "Read into block: fpi:%x cache:%d n:%d  seg:%d", (int)vol->bufferFPI[cache_idx[0]], (int)cache_idx[0] , (int)n, (int)segment );
+		LoG_( "Read into block: fpi:%x cache:%d n:%d  seg:%d buf:%p size:%d", (int)vol->bufferFPI[cache_idx[0]], (int)cache_idx[0] , (int)n, (int)segment, vol->usekey_buffer[cache_idx[0]], vol->sector_size[cache_idx[0]]  );
 #endif
-		if( !sack_fread( vol->usekey_buffer[cache_idx[0]], 1, vol->sector_size[cache_idx[0]], vol->file ) )
+		if( !( short_Read = sack_fread( vol->usekey_buffer[cache_idx[0]], 1, vol->sector_size[cache_idx[0]], vol->file ) ) ) {
 			memset( vol->usekey_buffer[cache_idx[0]], 0, vol->sector_size[cache_idx[0]] );
-		else {
+			// only need to clear this if it's checked for write data without setting dirty flag.
+			memset( vol->usekey_buffer_clean[cache_idx[0]], 0, vol->sector_size[cache_idx[0]] );
+		} else {
+			if( short_Read != vol->sector_size[cache_idx[0]] ) {
+				lprintf( "Short read on file:%" _size_f, short_Read );
+			}
 			if( vol->key )
 				SRG_XSWS_decryptData( vol->usekey_buffer[cache_idx[0]], vol->sector_size[cache_idx[0]]
 					, vol->segment[cache_idx[0]], (const uint8_t*)vol->oldkey?vol->oldkey:vol->key, 1024
 					, NULL, NULL );
-			memcpy( vol->usekey_buffer_clean[cache_idx[0]], vol->usekey_buffer[cache_idx[0]], BLOCK_SIZE );
+			// after reading what was on the disk (in the sector), save it as the 'clean' state for journaling
+			// modifications happen to usekey_buffer before SMUDGE is called.
+			memcpy( vol->usekey_buffer_clean[cache_idx[0]], vol->usekey_buffer[cache_idx[0]], vol->sector_size[cache_idx[0]] );
 #ifdef DEBUG_CACHE_FLUSH
 #  ifdef DEBUG_VALIDATE_TREE
 			if( cache_idx[0] < BC(TIMELINE_RO) )
@@ -64381,37 +59236,38 @@ static void _os_updateCacheAge_( struct sack_vfs_os_volume *vol, enum block_cach
 #endif
 }
 #define _os_UpdateSegmentKey(v,c,s) _os_UpdateSegmentKey_(v,c,s DBG_SRC )
-enum block_cache_entries _os_UpdateSegmentKey_( struct sack_vfs_os_volume *vol, enum block_cache_entries cache_idx, BLOCKINDEX segment DBG_PASS )
+enum block_cache_entries _os_UpdateSegmentKey_( struct sack_vfs_os_volume *vol, enum block_cache_entries* cache_idx, BLOCKINDEX segment DBG_PASS )
 {
 	//BLOCKINDEX oldSegs[BC(COUNT)];
 	//memcpy(oldSegs, vol->segment, sizeof(oldSegs));
-	if( cache_idx == BC(FILE) ) {
-		_os_updateCacheAge_( vol, &cache_idx, segment, vol->fileCacheAge, (BC(FILE_LAST) - BC(FILE)) DBG_RELAY );
+	if( cache_idx[0] == BC(FILE) ) {
+		_os_updateCacheAge_( vol, cache_idx, segment, vol->fileCacheAge, (BC(FILE_LAST) - BC(FILE)) DBG_RELAY );
 	}
-	else if( cache_idx == BC(NAMES) ) {
-		_os_updateCacheAge_( vol, &cache_idx, segment, vol->nameCacheAge, (BC(NAMES_LAST) - BC(NAMES)) DBG_RELAY );
+	else if( cache_idx[0] == BC(NAMES) ) {
+		_os_updateCacheAge_( vol, cache_idx, segment, vol->nameCacheAge, (BC(NAMES_LAST) - BC(NAMES)) DBG_RELAY );
 	}
 #ifdef VIRTUAL_OBJECT_STORE
-	else if( cache_idx == BC(DIRECTORY) ) {
-		_os_updateCacheAge_( vol, &cache_idx, segment, vol->dirHashCacheAge, (BC(DIRECTORY_LAST) - BC(DIRECTORY)) DBG_RELAY );
+	else if( cache_idx[0] == BC(DIRECTORY) ) {
+		_os_updateCacheAge_( vol, cache_idx, segment, vol->dirHashCacheAge, (BC(DIRECTORY_LAST) - BC(DIRECTORY)) DBG_RELAY );
 	}
-	else if( cache_idx == BC( TIMELINE ) ) {
-		_os_updateCacheAge_( vol, &cache_idx, segment, vol->timelineCacheAge, (BC( TIMELINE_LAST ) - BC( TIMELINE )) DBG_RELAY );
+	else if( cache_idx[0] == BC( TIMELINE ) ) {
+		_os_updateCacheAge_( vol, cache_idx, segment, vol->timelineCacheAge, (BC( TIMELINE_LAST ) - BC( TIMELINE )) DBG_RELAY );
 	}
-	else if( cache_idx == BC( ROLLBACK ) ) {
-		_os_updateCacheAge_( vol, &cache_idx, segment, vol->rollbackCacheAge, ( BC( ROLLBACK_LAST ) - BC( ROLLBACK ) ) DBG_RELAY );
+	else if( cache_idx[0] == BC( ROLLBACK ) ) {
+		//lprintf( "Cache age rollback: %d", (int)segment );
+		_os_updateCacheAge_( vol, cache_idx, segment, vol->rollbackCacheAge, ( BC( ROLLBACK_LAST ) - BC( ROLLBACK ) ) DBG_RELAY );
 	}
 #ifdef DEBUG_VALIDATE_TREE
-	else if( cache_idx == BC( TIMELINE_RO ) ) {
-		_os_updateCacheAge_( vol, &cache_idx, segment, vol->timelineCacheAge, ( BC( TIMELINE_RO_LAST ) - BC( TIMELINE_RO ) ) DBG_RELAY );
+	else if( cache_idx[0] == BC( TIMELINE_RO ) ) {
+		_os_updateCacheAge_( vol, cache_idx, segment, vol->timelineCacheAge, ( BC( TIMELINE_RO_LAST ) - BC( TIMELINE_RO ) ) DBG_RELAY );
 		{
 			int n;
 			for( n = BC( TIMELINE ); n < BC( TIMELINE_LAST ); n++ ) {
 				if( vol->segment[n] == segment ) {
 					if( TESTFLAG( vol->dirty, n ) || TESTFLAG( vol->_dirty, n ) ) {
 						// use the cached value instead of the disk value.
-						memcpy( vol->usekey_buffer[cache_idx], vol->usekey_buffer[n], BLOCK_SIZE );
-						memcpy( vol->usekey_buffer_clean[cache_idx], vol->usekey_buffer[n], BLOCK_SIZE );
+						memcpy( vol->usekey_buffer[cache_idx[0]], vol->usekey_buffer[n], BLOCK_SIZE );
+						memcpy( vol->usekey_buffer_clean[cache_idx[0]], vol->usekey_buffer[n], BLOCK_SIZE );
 						//lprintf( "Updaed clean buffer %d", n );
 					}
 					break;
@@ -64420,61 +59276,69 @@ enum block_cache_entries _os_UpdateSegmentKey_( struct sack_vfs_os_volume *vol, 
 		}
 	}
 #endif
-	else if( cache_idx == BC( BAT ) ) {
-		_os_updateCacheAge_( vol, &cache_idx, segment, vol->batHashCacheAge, (BC(BAT_LAST) - BC(BAT)) DBG_RELAY );
+	else if( cache_idx[0] == BC( BAT ) ) {
+		_os_updateCacheAge_( vol, cache_idx, segment, vol->batHashCacheAge, (BC(BAT_LAST) - BC(BAT)) DBG_RELAY );
 	}
 #endif
 	else {
-		if( vol->segment[cache_idx] != segment ) {
-			if( TESTFLAG( vol->dirty, cache_idx ) || TESTFLAG( vol->_dirty, cache_idx ) ) {
+		if( vol->segment[cache_idx[0]] != segment ) {
+			if( TESTFLAG( vol->dirty, cache_idx[0] ) || TESTFLAG( vol->_dirty, cache_idx[0] ) ) {
 #ifdef DEBUG_DISK_IO
-				LoG_( "MUST CLAIM SEGEMNT Flush dirty segment: %x %d", vol->bufferFPI[cache_idx], vol->segment[cache_idx] );
+				LoG_( "MUST CLAIM SEGMENT Flush dirty segment: fpi:%x %d", vol->bufferFPI[cache_idx[0]], vol->segment[cache_idx[0]] );
 #  ifdef DEBUG_DISK_DATA
-				LogBinary( vol->usekey_buffer[cache_idx], vol->sector_size[cache_idx] );
+				LogBinary( vol->usekey_buffer[cache_idx[0]], vol->sector_size[cache_idx[0]] );
 #  endif
 #endif
-				sack_fseek( vol->file, (size_t)vol->bufferFPI[cache_idx], SEEK_SET );
-				uint8_t *crypt;
-				size_t cryptlen;
+				sack_fseek( vol->file, (size_t)vol->bufferFPI[cache_idx[0]], SEEK_SET );
 				if( vol->key ) {
-					SRG_XSWS_encryptData( vol->usekey_buffer[cache_idx], vol->sector_size[cache_idx]
-						, vol->segment[cache_idx], (const uint8_t*)vol->key, 1024
+					uint8_t* crypt;
+					size_t cryptlen;
+					SRG_XSWS_encryptData( vol->usekey_buffer[cache_idx[0]], vol->sector_size[cache_idx[0]]
+						, vol->segment[cache_idx[0]], (const uint8_t*)vol->key, 1024
 						, &crypt, &cryptlen );
-					sack_fwrite( crypt, 1, vol->sector_size[cache_idx], vol->file );
+					if( !vol->flags.halted )
+						sack_fwrite( crypt, 1, vol->sector_size[cache_idx[0]], vol->file );
 					Deallocate( uint8_t*, crypt );
 				}
-				else
-					sack_fwrite( vol->usekey_buffer[cache_idx], 1, vol->sector_size[cache_idx], vol->file );
-				CLEANCACHE( vol, cache_idx );
-				RESETFLAG( vol->_dirty, cache_idx );
+				else {
+					if( !vol->flags.halted )
+						sack_fwrite( vol->usekey_buffer[cache_idx[0]], 1, vol->sector_size[cache_idx[0]], vol->file );
+				}
+				CLEANCACHE( vol, cache_idx[0] );
+				RESETFLAG( vol->_dirty, cache_idx[0] );
 #ifdef DEBUG_DISK_IO
-				LoG( "Flush dirty sector: %d", cache_idx, vol->bufferFPI[cache_idx] );
+				LoG( "Flush dirty sector: %d", cache_idx[0], vol->bufferFPI[cache_idx[0]] );
 #endif
 			}
 			// read new buffer for new segment
-			vol->bufferFPI[cache_idx] = vfs_os_compute_block( vol, segment - 1, cache_idx );
-			if( vol->bufferFPI[cache_idx] >= vol->dwSize ) _os_ExpandVolume( vol, vol->lastBlock, vol->sector_size[cache_idx] );
-			sack_fseek( vol->file, (size_t)(vol->bufferFPI[cache_idx]), SEEK_SET);
+			vol->bufferFPI[cache_idx[0]] = vfs_os_compute_block( vol, segment - 1, cache_idx[0] );
+			if( vol->bufferFPI[cache_idx[0]] >= vol->dwSize ) _os_ExpandVolume( vol, vol->lastBlock, vol->sector_size[cache_idx[0]] );
+			sack_fseek( vol->file, (size_t)(vol->bufferFPI[cache_idx[0]]), SEEK_SET);
 #ifdef DEBUG_DISK_IO
-			LoG( "OS VFS read old sector: fpi:%d %d %d", (int)vol->bufferFPI[cache_idx], cache_idx, segment );
+			LoG( "OS VFS read old sector: fpi:%d %d %d", (int)vol->bufferFPI[cache_idx[0]], cache_idx[0], segment );
 #endif
-			if( !sack_fread( vol->usekey_buffer[cache_idx], 1, vol->sector_size[cache_idx], vol->file ) ) {
+			if( !sack_fread( vol->usekey_buffer[cache_idx[0]], 1, vol->sector_size[cache_idx[0]], vol->file ) ) {
 				//lprintf( "Cleared BLock on failed read." );
-				memset( vol->usekey_buffer[cache_idx], 0, vol->sector_size[cache_idx] );
+				memset( vol->usekey_buffer[cache_idx[0]], 0, vol->sector_size[cache_idx[0]] );
+				// only need to clear this if it's checked for write data without setting dirty flag.
+				memset( vol->usekey_buffer_clean[cache_idx[0]], 0, vol->sector_size[cache_idx[0]] );
 			}
 			else {
 				if( vol->key )
-					SRG_XSWS_decryptData( vol->usekey_buffer[cache_idx], vol->sector_size[cache_idx]
-						, vol->segment[cache_idx], (const uint8_t*)vol->oldkey?vol->oldkey:vol->key, 1024
+					SRG_XSWS_decryptData( vol->usekey_buffer[cache_idx[0]], vol->sector_size[cache_idx[0]]
+						, vol->segment[cache_idx[0]], (const uint8_t*)vol->oldkey?vol->oldkey:vol->key, 1024
 						, NULL, NULL );
+				// after reading what was on the disk (in the sector), save it as the 'clean' state for journaling
+				// modifications happen to usekey_buffer before SMUDGE is called.
+				memcpy( vol->usekey_buffer_clean[cache_idx[0]], vol->usekey_buffer[cache_idx[0]], vol->sector_size[cache_idx[0]] );
 			}
 #ifdef DEBUG_DISK_IO
 #  ifdef DEBUG_DISK_DATA
-		LogBinary( vol->usekey_buffer[cache_idx], vol->sector_size[cache_idx] );
+		LogBinary( vol->usekey_buffer[cache_idx[0]], vol->sector_size[cache_idx[0]] );
 #  endif
 #endif
 		}
-		vol->segment[cache_idx] = segment;
+		vol->segment[cache_idx[0]] = segment;
 	}
 //#ifdef DEBUG_TRACE_LOG
 //	if (segment != oldSegs[cache_idx])
@@ -64482,7 +59346,7 @@ enum block_cache_entries _os_UpdateSegmentKey_( struct sack_vfs_os_volume *vol, 
 //#endif
 	//LoG( "Resulting stored segment in %d", cache_idx );
 	//lprintf( "Got Block %d into cache %d", (int)segment, cache_idx );
-	return cache_idx;
+	return cache_idx[0];
 }
 #ifdef _MSC_VER
 #pragma warning( default: 6001 )
@@ -64509,7 +59373,7 @@ uintptr_t vfs_os_block_index_SEEK( struct sack_vfs_os_volume* vol, BLOCKINDEX bl
 	while( ( offset = vfs_os_compute_block( vol, block, cache_index[0] ) ) >= vol->dwSize )
 		if( !_os_ExpandVolume( vol, vol->lastBlock, blockSize ) ) return 0;
 	{
-		cache_index[0] = _os_UpdateSegmentKey( vol, cache_index[0], block + 1 );
+		_os_UpdateSegmentKey( vol, cache_index, block + 1 );
 		//LoG( "RETURNING SEEK CACHED %p %d  0x%x   %d", vol->usekey_buffer[cache_index[0]], cache_index[0], (int)offset, (int)seg );
 		return ( (uintptr_t)vol->usekey_buffer[cache_index[0]] ) + ( offset % vol->sector_size[cache_index[0]] );
 	}
@@ -64517,13 +59381,14 @@ uintptr_t vfs_os_block_index_SEEK( struct sack_vfs_os_volume* vol, BLOCKINDEX bl
 // shared with fuse module
 // seek by byte position; result with an offset into a block.
 // this is used to access BAT information; and should be otherwise avoided.
-uintptr_t vfs_os_SEEK( struct sack_vfs_os_volume* vol, FPI offset, int blockSize, enum block_cache_entries* cache_index ) {
+uintptr_t vfs_os_SEEKX( struct sack_vfs_os_volume* vol, FPI offset, int blockSize, enum block_cache_entries* cache_index ) {
 	//lprintf( "This is more complicated with variable size data blocks" );
 	// unused function mostly.
 	while( offset >= vol->dwSize ) if( !_os_ExpandVolume( vol, vol->lastBlock, blockSize ) ) return 0;
+	// this assumes that all blocks are the same size; which is untrue.  This should be removed.
 	{
 		BLOCKINDEX seg = ( offset / BLOCK_SIZE ) + 1;
-		cache_index[0] = _os_UpdateSegmentKey( vol, cache_index[0], seg );
+		_os_UpdateSegmentKey( vol, cache_index, seg );
 		//LoG( "RETURNING SEEK CACHED %p %d  0x%x   %d", vol->usekey_buffer[cache_index[0]], cache_index[0], (int)offset, (int)seg );
 		return ( (uintptr_t)vol->usekey_buffer[cache_index[0]] ) + ( offset & BLOCK_MASK );
 	}
@@ -64546,9 +59411,10 @@ uintptr_t vfs_os_BSEEK_( struct sack_vfs_os_volume* vol, BLOCKINDEX block, int b
 			}
 		}
 #endif
+		// first call can skip setting information
 		while( vfs_os_compute_block( vol, b, BC( COUNT ) ) >= vol->dwSize ) if( !_os_ExpandVolume( vol, vol->lastBlock, blockSize ) ) return 0;
 		{
-			cache_index[0] = _os_UpdateSegmentKey_( vol, cache_index[0], b + 1 DBG_RELAY );
+			_os_UpdateSegmentKey_( vol, cache_index, b + 1 DBG_RELAY );
 			//LoG( "RETURNING BSEEK CACHED %p  %d %d %d  0x%x  %d   %d", vol->usekey_buffer[cache_index[0]], cache_index[0], (int)(block/ BLOCKS_PER_BAT), (int)(BLOCKS_PER_BAT-1), (int)b, (int)block, (int)seg );
 /* + (b&BLOCK_MASK) always 0 */
 			return ( (uintptr_t)vol->usekey_buffer[cache_index[0]] );
@@ -64557,7 +59423,7 @@ uintptr_t vfs_os_BSEEK_( struct sack_vfs_os_volume* vol, BLOCKINDEX block, int b
 		BLOCKINDEX b = _os_GetFreeBlock( vol, cache_index, GFB_INIT_NONE, blockSize );
  /* for first BAT */
 		b = ( 1 + ( b / BLOCKS_PER_BAT ) * (BLOCKS_PER_SECTOR)+( b % BLOCKS_PER_BAT ) );
-		cache_index[0] = _os_UpdateSegmentKey_( vol, cache_index[0], b + 1 DBG_RELAY );
+		_os_UpdateSegmentKey_( vol, cache_index, b + 1 DBG_RELAY );
 		// the returned block is set in the ((segment[cache_index[0]]-1)-1)
 		return ( (uintptr_t)vol->usekey_buffer[cache_index[0]] );
 	}
@@ -64583,7 +59449,7 @@ uint8_t * vfs_os_DSEEK_( struct sack_vfs_os_volume* vol, FPI dataFPI, int blockS
 				block = 0;
 			else
 				block = 1 + ( dataFPI - BAT_BLOCK_SIZE ) / info->size;
-			cache_index[0] = _os_UpdateSegmentKey( vol, cache_index[0], info->blockStart + block + 1 );
+			_os_UpdateSegmentKey( vol, cache_index, info->blockStart + block + 1 );
 			return vol->usekey_buffer[cache_index[0]] + ( dataFPI & (vol->sector_size[cache_index[0]] - 1) );
 		}
 	}
@@ -64597,6 +59463,7 @@ static LOGICAL _os_ValidateBAT( struct sack_vfs_os_volume *vol ) {
 	BLOCKINDEX sector = 0;
 	{
 		struct sack_vfs_os_BAT_info info;
+		struct sack_vfs_os_BAT_info *priorInfo;
 		FPI thisPos;
 		//struct sack_vfs_os_BAT_info* oldinfo;
 		vol->pdl_BAT_information->Cnt = 0;
@@ -64605,7 +59472,8 @@ static LOGICAL _os_ValidateBAT( struct sack_vfs_os_volume *vol ) {
 		info.blockStart = n = 0;
 		info.size = 4096;
 		AddDataItem( &vol->pdl_BAT_information, &info );
-		for( n = 0; ( thisPos = vfs_os_compute_block( vol, n, BC(COUNT) ) ) < vol->dwSize; n += BLOCKS_PER_SECTOR ) {
+		priorInfo = (struct sack_vfs_os_BAT_info*)GetDataItem( &vol->pdl_BAT_information, vol->pdl_BAT_information->Cnt-1 );
+		for( n = 0; ( thisPos = info.sectorStart ) < vol->dwSize; n += BLOCKS_PER_SECTOR ) {
 			BLOCKINDEX dataBlock = ( n / BLOCKS_PER_SECTOR ) * BLOCKS_PER_BAT;
 			size_t m;
 			BLOCKINDEX *BAT;
@@ -64613,21 +59481,16 @@ static LOGICAL _os_ValidateBAT( struct sack_vfs_os_volume *vol ) {
 			cache = BC(BAT);
 			// seek loads and updates the segment key...
 			BAT = (BLOCKINDEX*)vfs_os_block_index_SEEK( vol, n, 0, &cache );
-			info.size = BAT[BLOCKS_PER_BAT] ? BLOCK_SMALL_SIZE : 4096;
+			info.size = priorInfo->size = BAT[BLOCKS_PER_BAT] ? BLOCK_SMALL_SIZE : 4096;
 			{
-				struct sack_vfs_os_BAT_info *oldinfo;
-				info.sectorEnd = thisPos + BAT_BLOCK_SIZE + ( ( ( BLOCKS_PER_BAT * info.size ) + 4095 ) & ~4095 );
-				info.blockStart = n;
-				oldinfo = ( struct sack_vfs_os_BAT_info* )GetDataItem( &vol->pdl_BAT_information, sector );
-				if( oldinfo )
-					oldinfo[0] = info;
-				info.sectorStart = info.sectorEnd;
+				priorInfo->sectorEnd = thisPos + BAT_BLOCK_SIZE + ( ( ( BLOCKS_PER_BAT * info.size ) + 4095 ) & ~4095 );
+				info.sectorStart = priorInfo->sectorEnd;
+				info.blockStart = n + BLOCKS_PER_SECTOR;
 				vol->lastBlock = n + BLOCKS_PER_SECTOR;
 				AddDataItem( &vol->pdl_BAT_information, &info );
+				priorInfo = (struct sack_vfs_os_BAT_info*)GetDataItem( &vol->pdl_BAT_information, vol->pdl_BAT_information->Cnt-1 );
 			}
 			sector++;
-			// loads data into the cache entry.
-			//cache = _os_UpdateSegmentKey( vol, cache, n + 1 );
 			for( m = 0; m < BLOCKS_PER_BAT; m++ )
 			{
 				BLOCKINDEX block = BAT[0];
@@ -64645,20 +59508,59 @@ static LOGICAL _os_ValidateBAT( struct sack_vfs_os_volume *vol ) {
 					if( info.size == 4096 ) {
  // use as a temp variable....
 						vol->lastBatBlock = dataBlock + m;
+						LoG( "Marking free (lg)blank sector %d", vol->lastBatBlock );
 						AddDataItem( &vol->pdlFreeBlocks, &vol->lastBatBlock );
 					}
 					else {
  // use as a temp variable....
 						vol->lastBatSmallBlock = dataBlock + m;
+						LoG( "Marking free (sm)blank sector %d", vol->lastBatBlock );
 						AddDataItem( &vol->pdlFreeSmallBlocks, &vol->lastBatSmallBlock );
 					}
 				}
 			}
 			//if( m < BLOCKS_PER_BAT ) break;
 		}
-		if( sector > 1 ) {
-			// this ends up pusing 1 more so that compute can actually work on reload
-			vol->pdl_BAT_information->Cnt--;
+		// this ends up pusing 1 more so that compute can actually work on reload
+		vol->pdl_BAT_information->Cnt--;
+		priorInfo = (struct sack_vfs_os_BAT_info*)GetDataItem( &vol->pdl_BAT_information, vol->pdl_BAT_information->Cnt-1 );
+		if( priorInfo->sectorEnd > vol->dwSize )
+			vol->dwSize = priorInfo->sectorEnd;
+	}
+	// need to handle rollback before any timeline/directory loading
+	// otherwise they will cache sectors that are duplicated here.
+	if( !vol->journal.rollback_file ) {
+		struct sack_vfs_os_file* file;
+		file = _os_createFile( vol, FIRST_ROLLBACK_BLOCK, ROLLBACK_BLOCK_SIZE );
+		file->cache = BC( ROLLBACK );
+		enum block_cache_entries rollbackCache = BC( ROLLBACK );
+		struct vfs_os_rollback_header* rollback = (struct vfs_os_rollback_header*)vfs_os_FSEEK( vol, file, 0, 0, &rollbackCache, ROLLBACK_BLOCK_SIZE DBG_SRC );
+		if( !rollback->journal ) {
+			enum block_cache_entries firstBlockCache = BC( ROLLBACK );
+			rollback->journal = _os_GetFreeBlock( vol, &firstBlockCache, GFB_INIT_NONE, 4096 );
+			firstBlockCache = BC( ROLLBACK );
+			rollback->small_journal = _os_GetFreeBlock( vol, &firstBlockCache, GFB_INIT_NONE, 256 );
+			LoG( "Initial allocate of journal blocks: %d %d", rollback->journal, rollback->small_journal );
+		} else {
+			LoG( "Reload allocate of journal blocks: %d %d", rollback->journal, rollback->small_journal );
+		}
+		vol->journal.rollback_journal_file = _os_createFile( vol, rollback->journal, BLOCK_SIZE );
+		vol->journal.rollback_journal_file->cache = BC( ROLLBACK );
+		vol->journal.rollback_small_journal_file = _os_createFile( vol, rollback->small_journal, BLOCK_SMALL_SIZE );
+		vol->journal.rollback_small_journal_file->cache = BC( ROLLBACK );
+		vol->journal.rollback_file = file;
+		vol->journal.pdlPendingRecord = CreateDataList( sizeof( enum block_cache_entries ) );
+		vol->journal.pdlJournaled = CreateDataList( sizeof( BLOCKINDEX ) );
+		if( !vol->flags.skipRollbackProcessing )
+			vfs_os_process_rollback( vol );
+		{
+			INDEX idx;
+			enum block_cache_entries block;
+			LIST_FORALL( vol->pending_rollback, idx, enum block_cache_entries, block ) {
+				vfs_os_record_rollback( vol, block );
+			}
+			DeleteList( &vol->pending_rollback );
+			sack_vfs_os_polish_volume( vol );
 		}
 	}
 	vol->timeline_file = _os_createFile( vol, FIRST_TIMELINE_BLOCK, TIME_BLOCK_SIZE );
@@ -64673,27 +59575,7 @@ static LOGICAL _os_ValidateBAT( struct sack_vfs_os_volume *vol ) {
 		}
 	}
 	if( !_os_ScanDirectory( vol, NULL, FIRST_DIR_BLOCK, NULL, NULL, 0 ) ) return FALSE;
-	if( !vol->journal.rollback_file ) {
-		struct sack_vfs_os_file* file;
-		file = _os_createFile( vol, FIRST_ROLLBACK_BLOCK, ROLLBACK_BLOCK_SIZE );
-		file->cache = BC( ROLLBACK );
-		enum block_cache_entries rollbackCache = BC( ROLLBACK );
-		struct vfs_os_rollback_header* rollback = ( struct vfs_os_rollback_header* )vfs_os_FSEEK( vol, file, 0, 0, &rollbackCache, ROLLBACK_BLOCK_SIZE DBG_SRC );
-		if( !rollback->journal ) {
-			enum block_cache_entries firstBlockCache = BC( ROLLBACK );
-			rollback->journal = _os_GetFreeBlock( vol, &firstBlockCache, GFB_INIT_NONE, 4096 );
-			firstBlockCache = BC( ROLLBACK );
-			rollback->small_journal = _os_GetFreeBlock( vol, &firstBlockCache, GFB_INIT_NONE, 256 );
-		}
-		vol->journal.rollback_journal_file = _os_createFile( vol, rollback->journal, BLOCK_SIZE );
-		vol->journal.rollback_journal_file->cache = BC( ROLLBACK );
-		vol->journal.rollback_small_journal_file = _os_createFile( vol, rollback->small_journal, BLOCK_SMALL_SIZE );
-		vol->journal.rollback_small_journal_file->cache = BC( ROLLBACK );
-		vol->journal.rollback_file = file;
-		vol->journal.pdlPendingRecord = CreateDataList( sizeof( enum block_cache_entries ) );
-		vol->journal.pdlJournaled = CreateDataList( sizeof( BLOCKINDEX ) );
-		vfs_os_process_rollback( vol );
-	}
+	//lprintf( "total files:%d", l.fileCount );
 	return TRUE;
 }
 //-------------------------------------------------------
@@ -64779,6 +59661,7 @@ LOGICAL _os_ExpandVolume( struct sack_vfs_os_volume *vol, BLOCKINDEX fromBlock, 
 	LOGICAL created = FALSE;
 	LOGICAL path_checked = FALSE;
 	int n;
+	LoG( "Expand Volume: %d %d", fromBlock, size );
 	size_t oldsize = vol->dwSize;
 	if( vol->file && vol->read_only ) return TRUE;
 	if( !size ) return FALSE;
@@ -64786,34 +59669,39 @@ LOGICAL _os_ExpandVolume( struct sack_vfs_os_volume *vol, BLOCKINDEX fromBlock, 
 		char *fname;
 		char *iface;
 		char *tmp;
-		{
-			char *tmp = StrDup( vol->volname );
-			char *dir = (char*)pathrchr( tmp );
-			if( dir ) {
-				dir[0] = 0;
-				if( !IsPath( tmp ) ) MakePath( tmp );
-			}
-			free( tmp );
-			//Deallocate( char*, tmp );
-		}
 #ifndef USE_STDIO
 		if( tmp =(char*)StrChr( vol->volname, '@' ) ) {
-			tmp[0] = 0;
-			iface = (char*)vol->volname;
-			fname = tmp + 1;
-			struct file_system_mounted_interface *mount = sack_get_mounted_filesystem( iface );
-			//struct file_system_interface *iface = sack_get_filesystem_interface( iface );
-			if( !sack_exists( fname ) ) {
-				vol->file = sack_fopenEx( 0, fname, "rb+", mount );
-				if( !vol->file )
-					vol->file = sack_fopenEx( 0, fname, "wb+", mount );
-				created = TRUE;
+			if( tmp[1] == '@' ) {
+				strcpy( tmp, tmp + 1 );
+				goto defaultOpen;
+			} else {
+				tmp[0] = 0;
+				iface = (char*)vol->volname;
+				fname = tmp + 1;
+				struct file_system_mounted_interface* mount = sack_get_mounted_filesystem( iface );
+				//struct file_system_interface *iface = sack_get_filesystem_interface( iface );
+				if( !sack_exists( fname ) ) {
+					vol->file = sack_fopenEx( 0, fname, "rb+", mount );
+					if( !vol->file )
+						vol->file = sack_fopenEx( 0, fname, "wb+", mount );
+					created = TRUE;
+				} else
+					vol->file = sack_fopenEx( 0, fname, "rb+", mount );
+				tmp[0] = '@';
 			}
-			else
-				vol->file = sack_fopenEx( 0, fname, "rb+", mount );
-			tmp[0] = '@';
 		}
 		else {
+defaultOpen:
+			{
+				char* tmp = StrDup( vol->volname );
+				char* dir = (char*)pathrchr( tmp );
+				if( dir ) {
+					dir[0] = 0;
+					if( !IsPath( tmp ) ) MakePath( tmp );
+				}
+				free( tmp );
+				//Deallocate( char*, tmp );
+			}
 			vol->file = sack_fopenEx( 0, vol->volname, "rb+", vol->mount );
 			if( !vol->file ) {
 				created = TRUE;
@@ -64849,6 +59737,16 @@ LOGICAL _os_ExpandVolume( struct sack_vfs_os_volume *vol, BLOCKINDEX fromBlock, 
 		info.blockStart = ( pinfo ? ( pinfo->blockStart + BLOCKS_PER_SECTOR ) : 0 );
 		info.size = size;
 		AddDataItem( &vol->pdl_BAT_information, &info );
+		/*
+		{
+			INDEX idx;
+			struct sack_vfs_os_BAT_info *info;
+			// dump reloaded bat information (or bat so far...)
+			DATA_FORALL( vol->pdl_BAT_information, idx, struct sack_vfs_os_BAT_info *, info ) {
+				lprintf( "BAT Updated expanded: %d %d %d %d", info->blockStart, info->sectorStart, info->sectorEnd, info->size );
+			}
+		}
+		*/
 		// a BAT plus the sectors it references... ( BLOCKS_PER_BAT + 1 ) * BLOCK_SIZE
 		if( info.sectorEnd > vol->dwSize )
 			vol->dwSize = info.sectorEnd;
@@ -64861,13 +59759,12 @@ LOGICAL _os_ExpandVolume( struct sack_vfs_os_volume *vol, BLOCKINDEX fromBlock, 
 	//vol->disk->BAT[1] = EOFBLOCK;  // allocate 1 name block
 	n = 0;
 	if( created || ( (n=1),size == BLOCK_SMALL_SIZE && oldsize == ( BLOCK_SIZE * BLOCKS_PER_SECTOR ) ) ) {
-		enum block_cache_entries cache = _os_UpdateSegmentKey( vol, BC(BAT), n*BLOCKS_PER_SECTOR + 1 );
+		enum block_cache_entries cache = BC(BAT);
+		_os_UpdateSegmentKey( vol, &cache, n*BLOCKS_PER_SECTOR + 1 );
 		((BLOCKINDEX*)vol->usekey_buffer[cache])[0] = EOBBLOCK;
 		((BLOCKINDEX*)vol->usekey_buffer[cache])[BLOCKS_PER_BAT] = (size== BLOCK_SMALL_SIZE )?1:(size==4096)?0:2;
-		SMUDGECACHE( vol, cache );
-		vol->bufferFPI[cache] = oldsize;
 		if( created ) {
-			enum block_cache_entries dirCache = BC( ROLLBACK );
+			enum block_cache_entries dirCache = BC( DIRECTORY );
 			enum block_cache_entries timeCache = BC( TIMELINE );
 			enum block_cache_entries rollbackCache = BC( ROLLBACK );
 			BLOCKINDEX dirblock = _os_GetFreeBlock( vol, &dirCache, GFB_INIT_DIRENT, DIR_BLOCK_SIZE );
@@ -64875,19 +59772,22 @@ LOGICAL _os_ExpandVolume( struct sack_vfs_os_volume *vol, BLOCKINDEX fromBlock, 
 			BLOCKINDEX rollbackblock = _os_GetFreeBlock( vol, &rollbackCache, GFB_INIT_ROLLBACK, ROLLBACK_BLOCK_SIZE );
 			vol->lastBatBlock = 0;
 		}
-		else
-			vol->lastBatSmallBlock = BLOCKS_PER_BAT;
+		else {
+			//vol->lastBatSmallBlock = BLOCKS_PER_BAT;
+		}
+		SMUDGECACHE( vol, cache );
+		sack_vfs_os_flush_block( vol, cache );
+		vol->bufferFPI[cache] = oldsize;
 	}
 	return TRUE;
 }
-static BLOCKINDEX _os_GetFreeBlock_( struct sack_vfs_os_volume *vol, enum block_cache_entries *blockCache, enum getFreeBlockInit init, int blockSize DBG_PASS )
+static BLOCKINDEX _os_GetFreeBlock_( struct sack_vfs_os_volume *vol, enum block_cache_entries *blockCache, enum getFreeBlockInit init, int blockSize, LOGICAL flush_BAT_caches DBG_PASS )
 {
 	size_t n;
 	unsigned int b = 0;
 	enum block_cache_entries cache = BC( BAT );
 	BLOCKINDEX *current_BAT;
 	BLOCKINDEX check_val;
-	enum block_cache_entries newcache;
 	if( blockSize == 4096 ) {
 		if( vol->pdlFreeBlocks->Cnt ) {
 			BLOCKINDEX newblock = ((BLOCKINDEX*)GetDataItem( &vol->pdlFreeBlocks, vol->pdlFreeBlocks->Cnt - 1 ))[0];
@@ -64916,7 +59816,9 @@ static BLOCKINDEX _os_GetFreeBlock_( struct sack_vfs_os_volume *vol, enum block_
 			b = (unsigned int)( vol->lastBatSmallBlock / BLOCKS_PER_BAT );
 		}
 	}
-	//lprintf( "check, start, b, n %d %d %d %d", (int)check_val, (int) vol->lastBatBlock, (int)b, (int)n );
+#ifdef DEBUG_SET_SECTOR_SIZE
+	LoG_( "GetFreeBlock is using... check, start, b, n %d %d %d %d", (int)check_val, (int) vol->lastBatBlock, (int)b, (int)n );
+#endif
 //	vfs_os_compute_block( vol, b * BLOCKS_PER_SECTOR, cache );
 	current_BAT =  (BLOCKINDEX*)vfs_os_block_index_SEEK( vol, b*BLOCKS_PER_SECTOR, blockSize, &cache ) + n;
 	if( !current_BAT ) return 0;
@@ -64938,29 +59840,34 @@ static BLOCKINDEX _os_GetFreeBlock_( struct sack_vfs_os_volume *vol, enum block_
 			//lprintf( "Initialized bat at block %d to %d", lastB + 1, current_BAT[BLOCKS_PER_BAT] );
 			current_BAT[0] = EOBBLOCK;
 			// update the clean buffer, so journal writes initialized data.
-			memcpy( vol->usekey_buffer_clean[cache], vol->usekey_buffer[cache], DIR_BLOCK_SIZE );
+			//memcpy( vol->usekey_buffer_clean[cache], vol->usekey_buffer[cache], DIR_BLOCK_SIZE );
 			if( blockSize == 4096 )
 				vol->lastBatBlock = ( lastB + 1) * BLOCKS_PER_BAT;
 			else
 				vol->lastBatSmallBlock = ( lastB + 1 ) * BLOCKS_PER_BAT;
+			if( flush_BAT_caches ) sack_vfs_os_flush_block( vol, cache );
+ // make sure this gets saved...
+			else SMUDGECACHE( vol, cache );
 			//lprintf( "Set last block....%d", (int)vol->lastBatBlock );
 		}
 	}
-	SMUDGECACHE( vol, cache );
+	if( flush_BAT_caches ) sack_vfs_os_flush_block( vol, cache );
+	else SMUDGECACHE( vol, cache );
 	switch( init ) {
 	case GFB_INIT_DIRENT: {
 			struct directory_hash_lookup_block *dir;
 #ifdef DEBUG_BLOCK_INIT
 			LoG( "Create new directory: result %d", (int)(b * BLOCKS_PER_BAT + n) );
 #endif
-			newcache = _os_UpdateSegmentKey_( vol, BC( DIRECTORY ), b * (BLOCKS_PER_SECTOR)+n + 1 + 1 DBG_RELAY );
-			memset( vol->usekey_buffer[newcache], 0, DIR_BLOCK_SIZE );
-			dir = (struct directory_hash_lookup_block *)vol->usekey_buffer[newcache];
-			newcache = BC( NAMES );
-			dir->names_first_block = _os_GetFreeBlock( vol, &newcache, GFB_INIT_NAMES, NAME_BLOCK_SIZE );
+			blockCache[0] = BC( DIRECTORY );
+			_os_UpdateSegmentKey_( vol, blockCache, b * (BLOCKS_PER_SECTOR)+n + 1 + 1 DBG_RELAY );
+			memset( vol->usekey_buffer[blockCache[0]], 0, DIR_BLOCK_SIZE );
+			dir = (struct directory_hash_lookup_block *)vol->usekey_buffer[blockCache[0]];
+			enum block_cache_entries newcache2 = BC( NAMES );
+			dir->names_first_block = _os_GetFreeBlock( vol, &newcache2, GFB_INIT_NAMES, NAME_BLOCK_SIZE );
 			dir->used_names = 0;
 			// update the clean buffer, so journal writes initialized data.
-			memcpy( vol->usekey_buffer_clean[newcache], vol->usekey_buffer[newcache], DIR_BLOCK_SIZE );
+			//memcpy( vol->usekey_buffer_clean[newcache], vol->usekey_buffer[newcache2], DIR_BLOCK_SIZE );
 			break;
 		}
 	case GFB_INIT_TIMELINE: {
@@ -64968,54 +59875,52 @@ static BLOCKINDEX _os_GetFreeBlock_( struct sack_vfs_os_volume *vol, enum block_
 #ifdef DEBUG_BLOCK_INIT
 			LoG( "new block, init as root timeline" );
 #endif
-			newcache = _os_UpdateSegmentKey_( vol, blockCache[0], b * (BLOCKS_PER_SECTOR)+n + 1 + 1 DBG_RELAY );
-			blockCache[0] = newcache;
-			tl = (struct storageTimeline *)vol->usekey_buffer[newcache];
+			_os_UpdateSegmentKey_( vol, blockCache, b * (BLOCKS_PER_SECTOR)+n + 1 + 1 DBG_RELAY );
+			tl = (struct storageTimeline *)vol->usekey_buffer[blockCache[0]];
 			//tl->header.timeline_length  = 0;
 			//tl->header.crootNode.raw = 0;
 			tl->header.srootNode.raw = 0;
 			tl->header.first_free_entry.ref.index = 1;
 			//tl->header.first_free_entry.ref.depth = 0;
 			// update the clean buffer, so journal writes initialized data.
-			memcpy( vol->usekey_buffer_clean[newcache], vol->usekey_buffer[newcache], TIME_BLOCK_SIZE );
+			//memcpy( vol->usekey_buffer_clean[blockCache[0]], vol->usekey_buffer[blockCache[0]], TIME_BLOCK_SIZE );
 			break;
 		}
 	case GFB_INIT_TIMELINE_MORE:
 #ifdef DEBUG_BLOCK_INIT
 		LoG( "new block, init timeline more " );
 #endif
-		newcache = _os_UpdateSegmentKey_( vol, blockCache[0], b * (BLOCKS_PER_SECTOR)+n + 1 + 1 DBG_RELAY );
-		blockCache[0] = newcache;
-		memset( vol->usekey_buffer[newcache], 0, vol->sector_size[newcache] );
+		_os_UpdateSegmentKey_( vol, blockCache, b * (BLOCKS_PER_SECTOR)+n + 1 + 1 DBG_RELAY );
+		memset( vol->usekey_buffer[blockCache[0]], 0, vol->sector_size[blockCache[0]] );
 		// update the clean buffer, so journal writes initialized data.
-		memcpy( vol->usekey_buffer_clean[newcache],  vol->usekey_buffer[newcache], TIME_BLOCK_SIZE );
+		//memcpy( vol->usekey_buffer_clean[blockCache[0]],  vol->usekey_buffer[blockCache[0]], TIME_BLOCK_SIZE );
 		break;
 	case GFB_INIT_NAMES:
 #ifdef DEBUG_BLOCK_INIT
-		LoG( "new BLock, init names" );
+		LoG( "new block, init names" );
 #endif
-		newcache = _os_UpdateSegmentKey_( vol, blockCache[0], b * (BLOCKS_PER_SECTOR)+n + 1 + 1 DBG_RELAY );
-		blockCache[0] = newcache;
-		memset( vol->usekey_buffer[newcache], 0, vol->sector_size[newcache] );
-		((char*)(vol->usekey_buffer[newcache]))[0] = (char)UTF8_EOTB;
+		_os_UpdateSegmentKey_( vol, blockCache, b * (BLOCKS_PER_SECTOR)+n + 1 + 1 DBG_RELAY );
+		memset( vol->usekey_buffer[blockCache[0]], 0, vol->sector_size[blockCache[0]] );
+		((char*)(vol->usekey_buffer[blockCache[0]]))[0] = (char)UTF8_EOTB;
 		// update the clean buffer, so journal writes initialized data.
-		memcpy( vol->usekey_buffer_clean[newcache], vol->usekey_buffer[newcache], DIR_BLOCK_SIZE );
-		//LoG( "New Name Buffer: %x %p", vol->segment[newcache], vol->usekey_buffer[newcache] );
+		//memcpy( vol->usekey_buffer_clean[blockCache[0]], vol->usekey_buffer[blockCache[0]], DIR_BLOCK_SIZE );
+		//LoG( "New Name Buffer: %x %p", vol->segment[blockCache[0]], vol->usekey_buffer[blockCache[0]] );
 		break;
 	default:
 #ifdef DEBUG_BLOCK_INIT
 		LoG( "Default or NO init..." );
 #endif
-		newcache = _os_UpdateSegmentKey_( vol, blockCache[0], b * (BLOCKS_PER_SECTOR)+n + 1 + 1 DBG_RELAY );
-		blockCache[0] = newcache;
+		_os_UpdateSegmentKey_( vol, blockCache, b * (BLOCKS_PER_SECTOR)+n + 1 + 1 DBG_RELAY );
 		break;
 	}
-	SMUDGECACHE( vol, newcache );
-	LoG( "Return Free block:%d   %d  %d", (int)(b*BLOCKS_PER_BAT + n), (int)b, (int)n );
+	SMUDGECACHE( vol, blockCache[0] );
+#ifdef DEBUG_ROLLBACK_JOURNAL
+	LoG( "(post smudge)Return Free block:%d   %d  %d", (int)(b*BLOCKS_PER_BAT + n), (int)b, (int)n );
+#endif
 	//lprintf( "return block allocated: %d %d %d", (int)(b* BLOCKS_PER_BAT + n), (int)b, n );
 	return b * BLOCKS_PER_BAT + n;
 }
-static BLOCKINDEX vfs_os_GetNextBlock( struct sack_vfs_os_volume *vol, BLOCKINDEX block, enum block_cache_entries* blockCache, enum getFreeBlockInit init, LOGICAL expand, int blockSize, int *realBlockSize ) {
+static BLOCKINDEX vfs_os_GetNextBlock_v2( struct sack_vfs_os_volume *vol, BLOCKINDEX block, enum block_cache_entries* blockCache, enum getFreeBlockInit init, LOGICAL expand, int blockSize, int *realBlockSize, LOGICAL flush_BAT_caches ) {
 	BLOCKINDEX sector = block / BLOCKS_PER_BAT;
 	enum block_cache_entries cache = BC(BAT);
 	BLOCKINDEX *this_BAT = (BLOCKINDEX*)vfs_os_block_index_SEEK( vol, sector * (BLOCKS_PER_SECTOR), blockSize, &cache );
@@ -65042,19 +59947,45 @@ static BLOCKINDEX vfs_os_GetNextBlock( struct sack_vfs_os_volume *vol, BLOCKINDE
 	}
 	if( check_val == EOFBLOCK || check_val == EOBBLOCK ) {
 		if( expand ) {
-			check_val = _os_GetFreeBlock( vol, blockCache, init, blockSize );
+			SETMASK_( vol->seglock, seglock, cache, GETMASK_( vol->seglock, seglock, cache )+1 );
+			check_val = _os_GetFreeBlock_( vol, blockCache, init, blockSize, flush_BAT_caches DBG_SRC );
 #ifdef _DEBUG
 			if( !check_val )DebugBreak();
 #endif
-			// free block might have expanded...
-			this_BAT = (BLOCKINDEX*)vfs_os_block_index_SEEK( vol, sector * ( BLOCKS_PER_SECTOR ), BAT_BLOCK_SIZE, &cache );
-			if( !this_BAT ) return 0;
-			thisSize = this_BAT[BLOCKS_PER_BAT]? BLOCK_SMALL_SIZE :4096;
+			{
+				// free block might have expanded... get the size that was actually allocated
+				BLOCKINDEX nextSector = check_val / BLOCKS_PER_BAT;
+				if( sector != nextSector ) {
+					enum block_cache_entries cache = BC(BAT);
+					BLOCKINDEX* this_BAT2 = (BLOCKINDEX*)vfs_os_block_index_SEEK( vol, nextSector * ( BLOCKS_PER_SECTOR ), BAT_BLOCK_SIZE, &cache );
+					if( !this_BAT2 ) {
+						lprintf( "failed to load next bat to get size" );
+						return 0;
+					}
+					thisSize = this_BAT2[BLOCKS_PER_BAT] ? BLOCK_SMALL_SIZE : 4096;
+				} else
+					thisSize = this_BAT[BLOCKS_PER_BAT] ? BLOCK_SMALL_SIZE : 4096;
+			}
 			// segment could already be set from the _os_GetFreeBlock...
 			//lprintf( "set block %d %d %d to %d", (int)block, (int)( block % BLOCKS_PER_BAT ), (int)sector, (int)check_val );
 			this_BAT[block % BLOCKS_PER_BAT] = check_val;
-			SMUDGECACHE( vol, cache );
+			//lprintf( "Set %d  %d %d to %d", block, sector, block % BLOCKS_PER_BAT, check_val );
+			if( flush_BAT_caches ) sack_vfs_os_flush_block( vol, cache );
+			else SMUDGECACHE( vol, cache );
+			SETMASK_( vol->seglock, seglock, cache, GETMASK_( vol->seglock, seglock, cache ) - 1 );
 		}
+	} else {
+		enum block_cache_entries cache = BC(BAT);
+		BLOCKINDEX nextSector = check_val / BLOCKS_PER_BAT;
+		if( nextSector != sector ) {
+			BLOCKINDEX* this_BAT2 = (BLOCKINDEX*)vfs_os_block_index_SEEK( vol, nextSector * ( BLOCKS_PER_SECTOR ), BAT_BLOCK_SIZE, &cache );
+			if( !this_BAT2 ) {
+				lprintf( "failed to load next bat to get size" );
+				return 0;
+			}
+			thisSize = this_BAT2[BLOCKS_PER_BAT] ? BLOCK_SMALL_SIZE : 4096;
+		} else
+			thisSize = this_BAT[BLOCKS_PER_BAT] ? BLOCK_SMALL_SIZE : 4096;
 	}
 #ifdef _DEBUG
 	if( !check_val )DebugBreak();
@@ -65062,6 +59993,9 @@ static BLOCKINDEX vfs_os_GetNextBlock( struct sack_vfs_os_volume *vol, BLOCKINDE
 	if( realBlockSize ) realBlockSize[0] = thisSize;
 	//LoG( "return next block:%d %d", (int)block, (int)check_val );
 	return check_val;
+}
+static BLOCKINDEX vfs_os_GetNextBlock( struct sack_vfs_os_volume* vol, BLOCKINDEX block, enum block_cache_entries* blockCache, enum getFreeBlockInit init, LOGICAL expand, int blockSize, int* realBlockSize ) {
+	return vfs_os_GetNextBlock_v2( vol, block, blockCache, init, expand, blockSize, realBlockSize, FALSE );
 }
 static void _os_AddSalt( uintptr_t psv, POINTER *salt, size_t *salt_size ) {
 	struct sack_vfs_os_volume *vol = (struct sack_vfs_os_volume *)psv;
@@ -65154,32 +60088,37 @@ static void _os_AssignKey( struct sack_vfs_os_volume *vol, const char *key1, con
 static void sack_vfs_os_flush_block( struct sack_vfs_os_volume* vol, enum block_cache_entries entry ) {
 	INDEX idx = entry;
 #ifdef DEBUG_DISK_IO
-	LoG( "Flush dirty segment: %d   %zx %d", (int)idx, vol->bufferFPI[idx], vol->segment[idx] );
+	LoG( "Flush dirty segment: %d  fpi:%zx %d", (int)idx, vol->bufferFPI[idx], vol->segment[idx] );
 #  ifdef DEBUG_DISK_DATA
 	LogBinary( vol->usekey_buffer[idx], vol->sector_size[idx] );
 #  endif
 #endif
 	sack_fseek( vol->file, (size_t)vol->bufferFPI[idx], SEEK_SET );
-	if( vol->key )
+	if( vol->key ) {
+		uint8_t* crypt;
+		size_t cryptlen;
 		SRG_XSWS_encryptData( vol->usekey_buffer[idx], vol->sector_size[idx]
 			, vol->segment[idx], (const uint8_t*)vol->key, 1024
-			, NULL, NULL );
-	sack_fwrite( vol->usekey_buffer[idx], vol->sector_size[idx], 1, vol->file );
+			, &crypt, &cryptlen );
+		if( !vol->flags.halted )
+			sack_fwrite( crypt, 1, vol->sector_size[idx], vol->file );
+		Deallocate( uint8_t*, crypt );
+	} else {
+		if( !vol->flags.halted )
+			sack_fwrite( vol->usekey_buffer[idx], vol->sector_size[idx], 1, vol->file );
+	}
+	/*
 	if( !GETMASK_( vol->seglock, seglock, idx ) )
 		// don't HAVE To release that this segment is in this cache block...
 		// it's just claimable, and not dirty.
 		// vol->segment[idx] = ~0;
 		;
-	else
-		if( vol->key )
-			SRG_XSWS_decryptData( vol->usekey_buffer[idx], vol->sector_size[idx]
-				, vol->segment[idx], (const uint8_t*)vol->key, 1024
-				, NULL, NULL );
-	memcpy( vol->usekey_buffer_clean[idx], vol->usekey_buffer[idx], BLOCK_SIZE );
+	*/
+	memcpy( vol->usekey_buffer_clean[idx], vol->usekey_buffer[idx], vol->sector_size[idx] );
 	//lprintf( "Updated clean buffer %d", idx );
 	CLEANCACHE( vol, idx );
 	RESETFLAG( vol->_dirty, idx );
-	RESETFLAG( vol->dirty, idx );
+	//RESETFLAG( vol->dirty, idx );  // CLEANCACHE is this op...
 }
 void sack_vfs_os_flush_volume( struct sack_vfs_os_volume * vol, LOGICAL unload ) {
 	{
@@ -65261,6 +60200,9 @@ static uintptr_t volume_flusher( PTHREAD thread ) {
 						}
 #endif
 				}
+#ifdef DEBUG_DIRECTORIES
+			_os_dumpDirectories( vol, 0, 1 );
+#endif
 			vfs_os_empty_rollback(vol);
 		}
 		vol->flushing = 0;
@@ -65311,13 +60253,15 @@ struct sack_vfs_os_volume *sack_vfs_os_load_volume( const char * filepath, struc
 	AddLink( &l.volumes, vol );
 	return vol;
 }
-struct sack_vfs_os_volume *sack_vfs_os_load_crypt_volume( const char * filepath, uintptr_t version, const char * userkey, const char * devkey, struct file_system_mounted_interface* mount  ) {
+struct sack_vfs_os_volume* sack_vfs_os_load_volume_v2( int flags, CTEXTSTR filepath, uintptr_t version, CTEXTSTR userkey, CTEXTSTR devkey, struct file_system_mounted_interface* mount )	 {
 	struct sack_vfs_os_volume *vol = New( struct sack_vfs_os_volume );
 	MemSet( vol, 0, sizeof( struct sack_vfs_os_volume ) );
 	if( !mount )
 		mount = sack_get_default_mount();
 	vol->mount = mount;
 	if( !version ) version = 2;
+	if( flags & 1 ) vol->flags.skipRollbackProcessing = TRUE;
+	if( flags & 2 ) vol->flags.halted = TRUE;
 	vol->pdl_BAT_information = CreateDataList( sizeof( struct sack_vfs_os_BAT_info ) );
 	vol->pdlFreeBlocks = CreateDataList( sizeof( BLOCKINDEX ) );
 	vol->pdlFreeSmallBlocks = CreateDataList( sizeof( BLOCKINDEX ) );
@@ -65326,12 +60270,21 @@ struct sack_vfs_os_volume *sack_vfs_os_load_crypt_volume( const char * filepath,
 	vol->pvtDeleteBuffer = VarTextCreate();
 	_os_AssignKey( vol, userkey, devkey );
 	if( !_os_ExpandVolume( vol, 0, 4096 ) || !_os_ExpandVolume( vol, BLOCKS_PER_SECTOR, BLOCK_SMALL_SIZE ) || !_os_ValidateBAT( vol ) ) { sack_vfs_os_unload_volume( vol ); return NULL; }
+#ifdef DEBUG_DIRECTORIES
+	_os_dumpDirectories( vol, 0, 1 );
+#endif
 	AddLink( &l.volumes, vol );
 	return vol;
+}
+struct sack_vfs_os_volume* sack_vfs_os_load_crypt_volume( const char* filepath, uintptr_t version, const char* userkey, const char* devkey, struct file_system_mounted_interface* mount ) {
+	return sack_vfs_os_load_volume_v2( 0, filepath, version, userkey, devkey, mount );
 }
 void sack_vfs_os_unload_volume( struct sack_vfs_os_volume * vol ) {
 	INDEX idx;
 	struct sack_vfs_file *file;
+#ifdef DEBUG_DIRECTORIES
+	_os_dumpDirectories( vol, 0, 1 );
+#endif
 	LIST_FORALL( vol->files, idx, struct sack_vfs_file *, file )
 		break;
 	if( file ) {
@@ -65341,7 +60294,7 @@ void sack_vfs_os_unload_volume( struct sack_vfs_os_volume * vol ) {
 	DeleteLink( &l.volumes, vol );
 	if( vol->file )
 		sack_vfs_os_flush_volume( vol, TRUE );
-	strdup_free( (char*)vol->volname );
+	free( (char*)vol->volname );
 	DeleteListEx( &vol->files DBG_SRC );
 	sack_fclose( vol->file );
 	DeleteDataList( &vol->pdl_BAT_information );
@@ -65489,6 +60442,30 @@ const char *sack_vfs_os_get_signature( struct sack_vfs_os_volume *vol ) {
 	vol->lock = 0;
 	return signature;
 }
+LOGICAL checkFileLength( struct sack_vfs_os_volume *vol
+	, BLOCKINDEX firstBlock
+	, FPI expectedLength ) {
+	BLOCKINDEX curBlock = firstBlock;
+	size_t len;
+	enum block_cache_entries cache;
+	BLOCKINDEX sector = firstBlock / BLOCKS_PER_BAT;
+	enum block_cache_entries batcache = BC(BAT);
+	BLOCKINDEX *this_BAT = (BLOCKINDEX*)vfs_os_block_index_SEEK( vol, sector * (BLOCKS_PER_SECTOR), BLOCK_SIZE, &batcache );
+	len = this_BAT[BLOCKS_PER_BAT] ? BLOCK_SMALL_SIZE : 4096;
+	while( curBlock != EOFBLOCK ) {
+		int blockSize;
+		cache = BC(FILE);
+		curBlock = vfs_os_GetNextBlock( vol, curBlock, &cache, GFB_INIT_NONE, FALSE, 0, &blockSize );
+		if( curBlock != EOFBLOCK )
+			len += blockSize;
+	}
+	if( len < expectedLength ) {
+		lprintf( "Short file chain: %d %d", (int)len, (int)expectedLength );
+		return FALSE;
+	}
+	//else lprintf( "Success: %d %d %d",  (int) firstBlock, (int)len, (int)expectedLength );
+	return TRUE;
+}
 //-----------------------------------------------------------------------------------
 // Director Support Functions
 //-----------------------------------------------------------------------------------
@@ -65508,10 +60485,25 @@ LOGICAL _os_ScanDirectory_( struct sack_vfs_os_volume *vol, const char * filenam
 	struct directory_hash_lookup_block *dirblock;
 	struct directory_entry *next_entries;
 	if( filename && filename[0] == '.' && ( filename[1] == '/' || filename[1] == '\\' ) ) filename += 2;
+	if( !file && !filename && nameBlockStart )
+		lprintf( "Begin a scan dir:%d", (int)dirBlockSeg );
 	do {
 		enum block_cache_entries cache = BC(DIRECTORY);
 		BLOCKINDEX nameBlock;
 		dirblock = BTSEEK( struct directory_hash_lookup_block *, vol, this_dir_block, DIR_BLOCK_SIZE, cache );
+		SETMASK_( vol->seglock, seglock, cache, GETMASK_( vol->seglock, seglock, cache )+1 );
+		if( !dirblock->next_block[255] ) {
+ // symbol not defined
+#ifdef DEBUG_CONVERT_DIRECTORY
+			l.fileCount = 0;
+#endif
+		}
+		else{
+			if( !file && !filename && nameBlockStart )
+				 lprintf( "parent block(may be truncated): %d(%d) %d p:%d c:%d c:%c", (int)this_dir_block, cache, (int)dirblock->used_names
+							, (int)(dirblock->next_block[255] >> 8)
+							, (int)(dirblock->next_block[255] & 0xFF), (char)(dirblock->next_block[255] & 0xFF) );
+		}
 		nameBlock = dirblock->names_first_block;
 		if( filename )
 		{
@@ -65520,6 +60512,9 @@ LOGICAL _os_ScanDirectory_( struct sack_vfs_os_volume *vol, const char * filenam
 				leadin[(*leadinDepth)++] = filename[ofs];
 				ofs += 1;
 				this_dir_block = nextblock;
+				// just stepping to new block - unlock old, will lock new.
+				SETMASK_( vol->seglock, seglock, cache, GETMASK_( vol->seglock, seglock, cache )-1 );
+				//lprintf( "Follow subdirectory %d", (int)nextblock );
 				continue;
 			}
 		}
@@ -65530,10 +60525,17 @@ LOGICAL _os_ScanDirectory_( struct sack_vfs_os_volume *vol, const char * filenam
 				if( nextblock ) {
 					LOGICAL r;
 					leadin[(*leadinDepth)++] = (char)charIndex;
+#ifdef _DEBUG
+					if( !file && !filename && nameBlockStart )
+						lprintf( "Check subdirectory %d %d %c", (int)nextblock, (int)(dirblock->next_block[255] >> 8), charIndex );
+#endif
 					r = _os_ScanDirectory_( vol, NULL, nextblock, nameBlockStart, file, path_match, leadin, leadinDepth );
 					(*leadinDepth)--;
-					if( r )
+					if( r && r != 2 )   {
+						lprintf( "scan is returning early.. %d",r );
+						SETMASK_( vol->seglock, seglock, cache, GETMASK_( vol->seglock, seglock, cache )-1 );
 						return r;
+					}
 				}
 			}
 		}
@@ -65546,14 +60548,18 @@ LOGICAL _os_ScanDirectory_( struct sack_vfs_os_volume *vol, const char * filenam
 		curName = (usedNames) >> 1;
 		{
 			next_entries = dirblock->entries;
+			//lprintf( "name block %d %d %d", (int)dirBlockSeg, (int)usedNames, (int)cache );
 			while( minName <= usedNames && ( curName <= usedNames ) && ( curName >= 0 ) )
-			//for( n = 0; n < VFS_DIRECTORY_ENTRIES; n++ )
 			{
 				BLOCKINDEX bi;
 				enum block_cache_entries name_cache = BC(NAMES);
 				struct directory_entry *entry = dirblock->entries + curName;
 				//const char * testname;
 				FPI name_ofs = ( entry->name_offset ) & DIRENT_NAME_OFFSET_OFFSET;
+ // symbol not defined
+#ifdef DEBUG_CONVERT_DIRECTORY
+				l.fileCount++;
+#endif
 #ifdef DEBUG_TIMELINE_DIR_TRACKING
  // else we have a different issue.
 				if( entry->timelineEntry )
@@ -65562,7 +60568,10 @@ LOGICAL _os_ScanDirectory_( struct sack_vfs_os_volume *vol, const char * filenam
 					struct memoryTimelineNode time;
 					reloadTimeEntry( &time, vol, entry->timelineEntry VTReadOnly GRTELog DBG_SRC );
 					FPI entry_fpi = vol->bufferFPI[cache] + sane_offsetof( struct directory_hash_lookup_block, entries[curName] );
-					if( entry_fpi != time.disk->dirent_fpi ) DebugBreak();
+					if( entry_fpi != time.disk->dirent_fpi ) {
+						lprintf( "!!!! directory entry doesn't match: %d %d", entry_fpi, time.disk->dirent_fpi );
+						DebugBreak();
+					}
 					dropRawTimeEntry( vol, time.diskCache GRTELog DBG_SRC );
 				}
 #endif
@@ -65582,9 +60591,9 @@ LOGICAL _os_ScanDirectory_( struct sack_vfs_os_volume *vol, const char * filenam
 						continue;
 					}
 					// if file is end of directory, done sanning.
- // done.
-					if( bi == EODMARK ) return filename ? FALSE : (2);
-					if( name_ofs > vol->dwSize ) { return FALSE; }
+// done.
+					if( bi == EODMARK ) { lprintf( "Found end of directory mark." ); return filename ? FALSE : (2); }
+					if( name_ofs > vol->dwSize ) { lprintf( "name offset is bigger than volume size!"); return FALSE; }
 				}
 				//testname =
 				if( filename ) {
@@ -65593,24 +60602,31 @@ LOGICAL _os_ScanDirectory_( struct sack_vfs_os_volume *vol, const char * filenam
 					if( ( d = _os_MaskStrCmp( vol, filename+ofs, nameBlock, name_ofs, path_match ) ) == 0 ) {
 						if( file )
 						{
+							/* can just keep the existing lock...
 							int locks = GETMASK_( vol->seglock, seglock, cache ) + 1;
 							if( locks > 12 ) {
 								lprintf( "Too many locks open... " );
 								DebugBreak();
 							}
 							SETMASK_( vol->seglock, seglock, cache, locks );
+							*/
 							file->cache = cache;
 							file->entry_fpi = vol->bufferFPI[BC(DIRECTORY)] + ((uintptr_t)(((struct directory_hash_lookup_block *)0)->entries + curName));
-							file->_entry.name_offset = ( entry->name_offset & DIRENT_NAME_OFFSET_OFFSET ) + vfs_os_compute_data_block( vol, dirblock->names_first_block, BC( COUNT ) );
+							file->dir_block = this_dir_block;
+							file->entry_.name_offset = ( entry->name_offset & DIRENT_NAME_OFFSET_OFFSET ) + vfs_os_compute_data_block( vol, dirblock->names_first_block, BC( COUNT ) );
 							file->entry = entry;
 						}
 #ifdef DEBUG_DIRECTORIES
+						if(0)
 						LoG( "return found entry: %p (%" _size_f ":%" _size_f ") %*.*s%s"
 							, entry, name_ofs, entry->first_block
 							, *leadinDepth, *leadinDepth, leadin
 							, filename+ofs );
 #endif
 						if( nameBlockStart ) nameBlockStart[0] = dirblock->names_first_block ;
+						// keep the lock because of the file cache reference.
+						if( !file )
+							SETMASK_( vol->seglock, seglock, cache, GETMASK_( vol->seglock, seglock, cache )-1 );
 						return TRUE;
 					}
 					if( d > 0 ) {
@@ -65620,9 +60636,18 @@ LOGICAL _os_ScanDirectory_( struct sack_vfs_os_volume *vol, const char * filenam
 					}
 					curName = (minName + usedNames) >> 1;
 				}
-				else
-					minName++;
+				else {
+					if( minName < usedNames && !file ) {
+						if( !checkFileLength( vol, entry->first_block, entry->filesize ) ) {
+							lprintf( "directory scan found a short file chain" );
+							return FALSE;
+						}
+					}
+					curName++;
+				}
 			}
+			// no file created, found end, unlock this directory
+			SETMASK_( vol->seglock, seglock, cache, GETMASK_( vol->seglock, seglock, cache )-1 );
  // done.;
 			return filename ? FALSE : (2);
 		}
@@ -65676,7 +60701,7 @@ static FPI _os_SaveFileName( struct sack_vfs_os_volume *vol, BLOCKINDEX firstNam
 					name[namelen+0] = UTF8_EOT;
 					name[namelen+1] = UTF8_EOTB;
 					SMUDGECACHE( vol, cache );
-					//lprintf( "OFFSET:%d %d", (name) - (names), +blocks * NAME_BLOCK_SIZE );
+					//LoG( "save name OFFSET:%d %d", (name) - (names), +blocks * NAME_BLOCK_SIZE );
 					return (name) - (names) + blocks * NAME_BLOCK_SIZE;
 				}
 			}
@@ -65709,7 +60734,7 @@ static FPI _os_SaveFileName( struct sack_vfs_os_volume *vol, BLOCKINDEX firstNam
 	}
 	lprintf( "didn't actually save the name?" );
 }
-static void deleteDirectoryEntryName( struct sack_vfs_os_volume* vol, struct sack_vfs_os_file* file, int nameOffset, enum block_cache_entries nameCache ) {
+static void deleteDirectoryEntryName( struct sack_vfs_os_volume* vol, struct sack_vfs_os_file* file, int nameOffset, enum block_cache_entries nameCache, BLOCKINDEX dir_block_index ) {
 	size_t n;
 	FPI nameoffset_temp = 0;
 	static uint8_t namebuffer[3 * 4096];
@@ -65810,12 +60835,12 @@ static void deleteDirectoryEntryName( struct sack_vfs_os_volume* vol, struct sac
 				reloadTimeEntry( &time, vol, ( dirblock->entries[f].timelineEntry ) VTReadWrite GRTENoLog DBG_SRC );
 				time.disk->dirent_fpi = vol->bufferFPI[nameCache] + sane_offsetof( struct directory_hash_lookup_block, entries[f - 1] );
 				{
-					uint64_t index = time.disk->priorIndex;
+					uint64_t index = time.disk->priorTime;
 					while( index ) {
 						struct memoryTimelineNode time2;
 						reloadTimeEntry( &time2, vol, index GRTENoLog VTReadWrite DBG_SRC );
 						time2.disk->dirent_fpi = time.disk->dirent_fpi;
-						index = time2.disk->priorIndex;
+						index = time2.disk->priorTime;
 						updateTimeEntry( &time2, vol, TRUE DBG_SRC );
 					}
 				}
@@ -65832,8 +60857,29 @@ static void deleteDirectoryEntryName( struct sack_vfs_os_volume* vol, struct sac
 }
 static void ConvertDirectory( struct sack_vfs_os_volume *vol, const char *leadin, int leadinLength, BLOCKINDEX this_dir_block, struct directory_hash_lookup_block *orig_dirblock, enum block_cache_entries *newCache ) {
 	size_t n;
-#ifdef DEBUG_FILE_OPEN
-	LoG( "------------ BEGIN CONVERT DIRECTORY ----------------------" );
+#ifdef DEBUG_CONVERT_DIRECTORY
+	LoG( "------------ BEGIN CONVERT DIRECTORY ---------------------- %d", this_dir_block );
+#endif
+ // symbol not defined
+#ifdef DEBUG_CONVERT_DIRECTORY
+	{
+		BLOCKINDEX a;
+		if( !_os_ScanDirectory( vol, NULL, FIRST_DIR_BLOCK, NULL, NULL, 0 ) ) {
+			 lprintf( "Directory scan in close failed" );
+			DebugBreak();
+			//return ;
+		}
+		if( l.fileCount_old > l.fileCount ) {
+			BLOCKINDEX x;
+			lprintf( "operation befoe the convert lost files. %d %d", l.fileCount_old, l.fileCount );
+			//if( !_os_ScanDirectory( vol, NULL, FIRST_DIR_BLOCK, &x, NULL, 0 ) ) {
+			 //lprintf( "Directory scan in close failed" );
+			DebugBreak();
+			//return ;
+		}
+	}
+	lprintf( "total files:%d", l.fileCount );
+	l.fileCount_old = l.fileCount;
 #endif
 	do {
 		enum block_cache_entries cache = BC(DIRECTORY);
@@ -65897,8 +60943,8 @@ static void ConvertDirectory( struct sack_vfs_os_volume *vol, const char *leadin
 				int offset;
 				newdir_cache = BC(DIRECTORY);
 				newDirblock = BTSEEK( struct directory_hash_lookup_block *, vol, new_dir_block, DIR_BLOCK_SIZE, newdir_cache );
-#ifdef DEBUG_FILE_OPEN
-				LoG( "new dir block cache is  %d   %d", newdir_cache, (int)new_dir_block );
+#ifdef DEBUG_CONVERT_DIRECTORY
+				LoG( "new dir block cache is  %d   %d   %d  %d", newdir_cache, (int)new_dir_block, (int)this_dir_block, imax );
 #endif
 				newFirstNameBlock = newDirblock->names_first_block;
 #ifdef _DEBUG
@@ -65950,15 +60996,15 @@ static void ConvertDirectory( struct sack_vfs_os_volume *vol, const char *leadin
 							// new entry is still the same timeline entry as the old entry.
 							newEntry->timelineEntry = (entry->timelineEntry     )     ;
 							// timeline points at new entry.
-							time.disk->dirent_fpi = vol->bufferFPI[newdir_cache] + sane_offsetof( struct directory_hash_lookup_block , entries[nf]);
+							time.disk->dirent_fpi = vol->bufferFPI[newdir_cache] + sane_offsetof(struct directory_hash_lookup_block, entries[nf]);
 							{
-								uint64_t index = time.disk->priorIndex;
+								uint64_t index = time.disk->priorTime;
 								while( index ) {
 									struct memoryTimelineNode time2;
 									reloadTimeEntry( &time2, vol, index VTReadWrite GRTENoLog DBG_SRC );
 									time2.disk->dirent_fpi = time.disk->dirent_fpi;
 									updateTimeEntry( &time2, vol, TRUE DBG_SRC );
-									index = time2.disk->priorIndex;
+									index = time2.disk->priorTime;
 								}
 							}
 #ifdef DEBUG_TIMELINE_DIR_TRACKING
@@ -65973,9 +61019,27 @@ static void ConvertDirectory( struct sack_vfs_os_volume *vol, const char *leadin
 								struct sack_vfs_file  * file;
 								LIST_FORALL( vol->files, idx, struct sack_vfs_file  *, file ) {
 									if( file->entry_fpi == oldFPI ) {
+										// unlock old directory
+										int locks = GETMASK_( vol->seglock, seglock, file->cache ) - 1;
+										if( locks < 0 ) {
+											lprintf( "File lock in convert underflow... " );
+											DebugBreak();
+										}
+										SETMASK_( vol->seglock, seglock, cache, locks );
 										// new entry_fpi.
  // dirent_fpi type is larger than index in some configurations; but won't exceed those bounds
 										file->entry_fpi = (FPI)time.disk->dirent_fpi;
+										//file->dir_block = time.disk->dir
+										lprintf( "File cache might have been wrong... (AND USED OLD ENTRY)" );
+										file->entry = newEntry;
+										file->cache = newdir_cache;
+										// lock new cache entry
+										locks = GETMASK_( vol->seglock, seglock, file->cache ) + 1;
+										if( locks < 0 ) {
+											lprintf( "File lock in convert underflow... " );
+											DebugBreak();
+										}
+										SETMASK_( vol->seglock, seglock, cache, locks );
 									}
 								}
 							}
@@ -65998,6 +61062,10 @@ static void ConvertDirectory( struct sack_vfs_os_volume *vol, const char *leadin
 						}
 					}
 				}
+				LoG( "blocks: %d %d %d old names new names %d %d = %d"
+						, this_dir_block, new_dir_block
+						, imax
+						, dirblock->used_names, newDirblock->used_names, dirblock->used_names+ newDirblock->used_names );
 				// move all others down 1.
 				movedEntry = movedEntry - 1;
 				offset = (f - movedEntry);
@@ -66017,15 +61085,16 @@ static void ConvertDirectory( struct sack_vfs_os_volume *vol, const char *leadin
 							struct memoryTimelineNode time;
 							enum block_cache_entries  timeCache = BC( TIMELINE );
 							reloadTimeEntry( &time, vol, (dirblock->entries[m + offset].timelineEntry) VTReadWrite GRTENoLog DBG_SRC );
-							time.disk->dirent_fpi = vol->bufferFPI[cache] + sane_offsetof( struct directory_hash_lookup_block, entries[m] );
+ /*vol->bufferFPI[cache]*/
+							time.disk->dirent_fpi = this_dir_block * BLOCK_SIZE + sane_offsetof( struct directory_hash_lookup_block, entries[m] );
 							{
-								uint64_t index = time.disk->priorIndex;
+								uint64_t index = time.disk->priorTime;
 								while( index ) {
 									struct memoryTimelineNode time2;
 									reloadTimeEntry( &time2, vol, index VTReadWrite GRTENoLog DBG_SRC );
 									time2.disk->dirent_fpi = time.disk->dirent_fpi;
 									updateTimeEntry( &time2, vol, TRUE DBG_SRC );
-									index = time2.disk->priorIndex;
+									index = time2.disk->priorTime;
 								}
 							}
 #ifdef DEBUG_TIMELINE_DIR_TRACKING
@@ -66092,6 +61161,26 @@ static void ConvertDirectory( struct sack_vfs_os_volume *vol, const char *leadin
 					} while( name_block != EOFBLOCK );
 				}
 			}
+ // symbol not defined
+#ifdef DEBUG_CONVERT_DIRECTORY
+			if( !_os_ScanDirectory( vol, NULL, FIRST_DIR_BLOCK, NULL, NULL, 0 ) ) {
+				 lprintf( "Directory scan in close failed" );
+				DebugBreak();
+				//return ;
+			}
+			if( l.fileCount_old > l.fileCount ) {
+				BLOCKINDEX x;
+				lprintf( "This convert operation lost files. %d %d", l.fileCount_old, l.fileCount );
+				if( !_os_ScanDirectory( vol, NULL, FIRST_DIR_BLOCK, &x, NULL, 0 ) ) {
+					 lprintf( "Directory scan in close failed" );
+					DebugBreak();
+					//return ;
+				}
+				DebugBreak();
+			}
+			lprintf( "total files:%d", l.fileCount );
+			l.fileCount_old = l.fileCount;
+#endif
   // a set of names has been moved out of this block.
 			break;
 			// has block.
@@ -66148,10 +61237,15 @@ static struct directory_entry * _os_GetNewDirectory( struct sack_vfs_os_volume *
 		}
 		usedNames = dirblock->used_names;
 		//lprintf( " --------------- THIS DIR BLOCK ---------------" );
-		//_os_dumpDirectories( vol, this_dir_block, 1 );
 		if( usedNames == VFS_DIRECTORY_ENTRIES ) {
 			ConvertDirectory( vol, leadin, leadinDepth, this_dir_block, dirblock, &cache );
 			/* retry */
+#ifdef DEBUG_DIRECTORIES
+			lprintf( "----- CONVERTED-------" );
+			_os_dumpDirectories( vol, this_dir_block, 1 );
+			lprintf( "----- CONVERTED (ALL)-------" );
+			_os_dumpDirectories( vol, 0, 1 );
+#endif
 			continue;
 		}
 		{
@@ -66179,17 +61273,20 @@ static struct directory_entry * _os_GetNewDirectory( struct sack_vfs_os_volume *
 						reloadTimeEntry( &node, vol, dirblock->entries[m - 1].timelineEntry VTReadWrite GRTENoLog DBG_SRC );
 						dirblock->entries[m].timelineEntry = dirblock->entries[m - 1].timelineEntry;
 #ifdef DEBUG_TIMELINE_DIR_TRACKING
-						lprintf( "direntry at %d  %d is time %d", (int)this_dir_block, (int)m, (int)dirblock->entries[m].timelineEntry );
+						LoG( "direntry at %d  %d is time %d", (int)this_dir_block, (int)m, (int)dirblock->entries[m].timelineEntry );
 #endif
 						node.disk->dirent_fpi = dirblockFPI + sane_offsetof( struct directory_hash_lookup_block, entries[m] );
 						{
-							uint64_t index = node.disk->priorIndex;
+							uint64_t index = node.disk->priorTime;
 							while( index ) {
 								struct memoryTimelineNode time2;
 								reloadTimeEntry( &time2, vol, index VTReadWrite GRTENoLog DBG_SRC );
 								time2.disk->dirent_fpi = node.disk->dirent_fpi;
+#ifdef DEBUG_TIMELINE_DIR_TRACKING
+								LoG( "(Move)Set timeline %d to %d", (int)time2.index, (int)time2.disk->dirent_fpi );
+#endif
 								updateTimeEntry( &time2, vol, TRUE DBG_SRC );
-								index = time2.disk->priorIndex;
+								index = time2.disk->priorTime;
 							}
 						}
 #ifdef DEBUG_TIMELINE_DIR_TRACKING
@@ -66242,7 +61339,9 @@ static struct directory_entry * _os_GetNewDirectory( struct sack_vfs_os_volume *
 				}
 				SETMASK_( vol->seglock, seglock, cache, locks );
 				file->entry_fpi = dirblockFPI + sane_offsetof( struct directory_hash_lookup_block, entries[n] );;
-				file->_entry.name_offset = ( file->entry->name_offset & DIRENT_NAME_OFFSET_OFFSET ) + vfs_os_compute_data_block( vol, dirblock->names_first_block, BC( COUNT ) );
+				file->dir_block = this_dir_block;
+				file->entry_.name_offset = ( file->entry->name_offset & DIRENT_NAME_OFFSET_OFFSET ) + vfs_os_compute_data_block( vol, dirblock->names_first_block, BC( COUNT ) );
+				// the modern version only uses entry and cache; entry_fpi, dir_block above are unused; this dirent is locked into the caching subsystem.
 				file->entry = ent;
 				file->cache = cache;
 			}
@@ -66252,34 +61351,73 @@ static struct directory_entry * _os_GetNewDirectory( struct sack_vfs_os_volume *
 	}
 	while( 1 );
 }
-struct sack_vfs_os_file * CPROC sack_vfs_os_openfile( struct sack_vfs_os_volume *vol, const char * filename ) {
+static struct sack_vfs_os_file * CPROC sack_vfs_os_openfile_internal( struct sack_vfs_os_volume *vol, const char * filename, uint64_t version, LOGICAL create ) {
 //New( struct sack_vfs_os_file );
 	struct sack_vfs_os_file *file = GetFromSet( VFS_OS_FILE, &l.files );
 	while( LockedExchange( &vol->lock, 1 ) ) Relinquish();
 	MemSet( file, 0, sizeof( struct sack_vfs_os_file ) );
 	BLOCKINDEX offset;
 	file->vol = vol;
-	file->entry = &file->_entry;
-	file->sealant = NULL;
+ // default to internal buffer; might never have a real directory
+	file->entry = &file->entry_;
+	//file->sealant = NULL;
 	if( filename[0] == '.' && ( filename[1] == '\\' || filename[1] == '/' ) ) filename += 2;
 #ifdef DEBUG_FILE_OPEN
 	LoG( "sack_vfs open %s = %p on %s", filename, file, vol->volname );
 #endif
-	if( !_os_ScanDirectory( vol, filename, FIRST_DIR_BLOCK, NULL, file, 0 ) ) {
-		if( vol->read_only ) { LoG( "Fail open: readonly" ); vol->lock = 0;
+	if( filename )
+		if( !_os_ScanDirectory( vol, filename, FIRST_DIR_BLOCK, NULL, file, 0 ) ) {
+			if( vol->read_only ) { LoG( "Fail open: readonly" ); vol->lock = 0;
  //Deallocate( struct sack_vfs_os_file*, file );
-			DeleteFromSet( VFS_OS_FILE, &l.files, file );
-			return NULL;
+				DeleteFromSet( VFS_OS_FILE, &l.files, file );
+				return NULL;
+			}
+			else _os_GetNewDirectory( vol, filename, file );
 		}
-		else _os_GetNewDirectory( vol, filename, file );
-	}
+	if( ( file->entry->first_block != DIR_ALLOCATING_MARK ) && create ) {
+		// if there is already data
+		file->flags.versioned = 1;
+	} else
+		file->flags.versioned = 0;
+ // saved for versioning really
+	file->filesize_ = file->entry->filesize;
+	// update to the file's first block (allocating, data, whatever)
 	file->_first_block = file->block = file->entry->first_block;
+  // sort of a opened for write
+	if( create ) {
+		// this updates the timestamp of the file, and allocates a new one
+		PDATALIST pdlTimes = CreateDataList( sizeof( uint64_t ) );
+		struct sack_vfs_os_volume* vol = file->vol;
+		struct memoryTimelineNode time;
+		enum block_cache_entries  timeCache = BC( TIMELINE );
+		BLOCKINDEX priorData = file->entry->first_block;
+		reloadTimeEntry( &time, vol, file->entry->timelineEntry VTReadWrite GRTENoLog  DBG_SRC );
+#ifdef _DEBUG
+		if( !time.disk->time ) DebugBreak();
+#endif
+		// open oldest by default, with no prior time set...
+		if( time.disk->priorTime ) {
+			BLOCKINDEX priorTime = time.disk->priorTime;
+			while( priorTime ) {
+				enum block_cache_entries cache;
+				struct storageTimelineNode* prior = getRawTimeEntry( vol, priorTime, &cache GRTENoLog DBG_SRC );
+				//prior->
+				priorTime = prior->priorTime;
+				priorData = prior->priorData;
+				file->filesize_ = prior->priorDataSize;
+				if( prior->time <= version ) break;
+				dropRawTimeEntry( file->vol, cache GRTENoLog DBG_SRC );
+			}
+		}
+		dropRawTimeEntry( vol, time.diskCache GRTENoLog DBG_SRC );
+	}
  // file->entry->name_offset;
-	offset = file->_entry.name_offset;
+	offset = file->entry_.name_offset;
 	//file->filename = StrDup( filename );
-	file->fileName = !!filename;
+	//file->fileName = !!filename;
+#ifdef XX_VIRTUAL_OBJECT_STORE
 	if( ( file->entry->name_offset ) & DIRENT_NAME_OFFSET_FLAG_SEALANT ) {
-		sack_vfs_os_read_internal( file, &file->diskHeader, sizeof( file->diskHeader ) );
+		sack_vfs_os_read_internal( file, 0, &file->diskHeader, sizeof( file->diskHeader ) );
 		file->header = file->diskHeader;
 		file->fpi = file->header.sealant.avail + file->header.references.avail;
 		{
@@ -66296,9 +61434,13 @@ struct sack_vfs_os_file * CPROC sack_vfs_os_openfile( struct sack_vfs_os_volume 
 			}
 		}
 	}
+#endif
 	AddLink( &vol->files, file );
 	vol->lock = 0;
 	return file;
+}
+struct sack_vfs_os_file * CPROC sack_vfs_os_openfile( struct sack_vfs_os_volume *vol, const char * filename ) {
+	return sack_vfs_os_openfile_internal( vol, filename, 0, FALSE );
 }
 static struct sack_vfs_os_file * CPROC sack_vfs_os_open( uintptr_t psvInstance, const char * filename, const char *opts ) {
 	return sack_vfs_os_openfile( (struct sack_vfs_os_volume*)psvInstance, filename );
@@ -66350,13 +61492,13 @@ int CPROC sack_vfs_os_exists( struct sack_vfs_os_volume *vol, const char * file 
 	return result;
 }
 size_t CPROC sack_vfs_os_tell( struct sack_vfs_os_file *file ) { return (size_t)file->fpi; }
-size_t CPROC sack_vfs_os_size( struct sack_vfs_os_file *file ) {	return (size_t)(file->entry->filesize); }
+size_t CPROC sack_vfs_os_size( struct sack_vfs_os_file *file ) {	return (size_t)(file->filesize_); }
 size_t CPROC sack_vfs_os_seek_internal( struct sack_vfs_os_file *file, size_t pos, int whence )
 {
 	FPI old_fpi = file->fpi;
 	if( whence == SEEK_SET ) file->fpi = pos;
 	if( whence == SEEK_CUR ) file->fpi += pos;
-	if( whence == SEEK_END ) file->fpi = ( file->entry->filesize  ) + pos;
+	if( whence == SEEK_END ) file->fpi = ( file->filesize_  ) + pos;
 	while( LockedExchange( &file->vol->lock, 1 ) ) Relinquish();
 	{
 		if( file->fpi >= old_fpi ) {
@@ -66405,20 +61547,19 @@ size_t CPROC sack_vfs_os_seek_internal( struct sack_vfs_os_file *file, size_t po
 size_t CPROC sack_vfs_os_seek( struct sack_vfs_os_file* file, size_t pos, int whence ) {
 	return sack_vfs_os_seek_internal( (struct sack_vfs_os_file*) file, pos, whence );
 }
-#define IS_OWNED(file)  ( (file->entry->name_offset) & DIRENT_NAME_OFFSET_FLAG_OWNED )
-#define IS_VERSIONED(file)  ( (file->entry->name_offset) & DIRENT_NAME_OFFSET_VERSIONED )
 size_t CPROC sack_vfs_os_write_internal( struct sack_vfs_os_file* file, const void* data_, size_t length
 		, POINTER writeState ) {
 	const char* data = (const char*)data_;
 	size_t written = 0;
 	size_t ofs = file->fpi & BLOCK_MASK;
 	LOGICAL updated = FALSE;
-	uint8_t* cdata;
-	size_t cdataLen;
 #ifdef DEBUG_DISK_DATA
 	lprintf( "Write to %p %d at %d", data_, length, file->fpi );
 	LogBinary( data, file->blockSize );
 #endif
+#ifdef XX_VIRTUAL_OBJECT_STORE
+	uint8_t* cdata;
+	size_t cdataLen;
 	if( file->readKey && !file->fpi ) {
 		enum block_cache_entries cache;
 		struct storageTimelineNode* time = getRawTimeEntry( file->vol, file->entry->timelineEntry, &cache GRTENoLog DBG_SRC );
@@ -66432,9 +61573,10 @@ size_t CPROC sack_vfs_os_write_internal( struct sack_vfs_os_file* file, const vo
 	else {
 		cdata = NULL;
 	}
+#endif
 	while( LockedExchange( &file->vol->lock, 1 ) ) Relinquish();
-	if( file->entry->filesize != DIR_ALLOCATING_MARK )
-		if( IS_VERSIONED( file ) )
+	if( file->entry->first_block != DIR_ALLOCATING_MARK )
+		if( file->flags.versioned )
 		{
 			// if versioned, but no limit, just do this.
 			if( file->entry->name_offset & DIRENT_NAME_OFFSET_VERSIONS ) {
@@ -66445,12 +61587,16 @@ size_t CPROC sack_vfs_os_write_internal( struct sack_vfs_os_file* file, const vo
 				enum block_cache_entries cache;
 				struct storageTimelineNode* timeline = getRawTimeEntry( file->vol, file->entry->timelineEntry, &cache GRTENoLog DBG_SRC );
 				timeline->priorDataPad = (uint16_t)( file->blockChain[last].size - ( file->entry->filesize & ( file->blockChain[last].size - 1 ) ) );
+				//timeline->priorData = file->entry->first_block;
 				timeline->priorData = file->entry->first_block;
+				timeline->priorDataSize = file->entry->filesize;
 				file->entry->first_block = DIR_ALLOCATING_MARK;
 				file->entry->filesize = 0;
+				file->filesize_ = 0;
 				file->blockChainLength = 0;
 				dropRawTimeEntry( file->vol, cache GRTENoLog DBG_SRC );
 			}
+			//lprintf( "this needs to result with the new timestamp" );
 			//file->entry->timelineEntry = file->entry->timelineEntry;
 			updated = TRUE;
 		} else {
@@ -66467,6 +61613,7 @@ size_t CPROC sack_vfs_os_write_internal( struct sack_vfs_os_file* file, const vo
 			//file->entry->timelineEntry = file->timeline.index;
 			updated = TRUE;
 		}
+#ifdef XX_VIRTUAL_OBJECT_STORE
 	if( (file->entry->name_offset) & DIRENT_NAME_OFFSET_FLAG_SEALANT ) {
 		char* filename;
 		size_t filenameLen = 64;
@@ -66478,6 +61625,7 @@ size_t CPROC sack_vfs_os_write_internal( struct sack_vfs_os_file* file, const vo
 		if( cdata ) Release( cdata );
 		return sack_vfs_os_write_internal( pFile, data, length, (POINTER)1 );
 	}
+#endif
 #ifdef DEBUG_FILE_OPS
 	LoG( "Write to file %p %" _size_f "  @%" _size_f, file, length, ofs );
 #endif
@@ -66487,12 +61635,12 @@ size_t CPROC sack_vfs_os_write_internal( struct sack_vfs_os_file* file, const vo
 		int blockSize = file->vol->sector_size[cache];
 		if( length >= (blockSize - (ofs)) ) {
 			memcpy( block + ofs, data, blockSize-ofs );
-			SETFLAG( file->vol->dirty, cache );
+			SMUDGECACHE( file->vol, cache );
 			data += blockSize - ofs;
 			written += blockSize - ofs;
 			file->fpi += blockSize - ofs;
 			if( file->fpi > (file->entry->filesize) ) {
-				file->entry->filesize = file->fpi;
+				file->filesize_ = file->entry->filesize = file->fpi;
 				updated = TRUE;
 			}
 			length -= blockSize - ofs;
@@ -66505,18 +61653,22 @@ size_t CPROC sack_vfs_os_write_internal( struct sack_vfs_os_file* file, const vo
 				= _os_GetFreeBlock( file->vol, &cache, GFB_INIT_NONE, length > 4096 ? 4096 : length < 2048 ? BLOCK_SMALL_SIZE : 4096 );
 			else
 				file->block = vfs_os_GetNextBlock( file->vol, file->block, &cache, GFB_INIT_NONE, TRUE
-					, file->blockSize
+					,
+#ifdef XX_VIRTUAL_OBJECT_STORE
+					file->blockSize
 						? file->blockSize
-						: (length>4096)?4096:length<2048? BLOCK_SMALL_SIZE :4096, (int*)&blockSize );
+						:
+#endif
+					(length>4096)?4096:length<2048? BLOCK_SMALL_SIZE :4096, (int*)&blockSize );
 		}
 		else {
 			memcpy( block+ofs, data, length );
-			SETFLAG( file->vol->dirty, cache );
+			SMUDGECACHE( file->vol, cache );
 			data += length;
 			written += length;
 			file->fpi += length;
 			if( file->fpi > (file->entry->filesize) ) {
-				file->entry->filesize = file->fpi;
+				file->filesize_ = file->entry->filesize = file->fpi;
 				updated = TRUE;
 			}
 			length = 0;
@@ -66525,9 +61677,15 @@ size_t CPROC sack_vfs_os_write_internal( struct sack_vfs_os_file* file, const vo
 	// if there's still length here, FPI is now on the start of blocks
 	while( length ) {
 		enum block_cache_entries cache = BC( FILE );
-		uint8_t* block = (uint8_t*)vfs_os_BSEEK( file->vol, file->block, file->blockSize
+		uint8_t* block = (uint8_t*)vfs_os_BSEEK( file->vol, file->block,
+			/*
+#ifdef XX_VIRTUAL_OBJECT_STORE
+			file->blockSize
 			? file->blockSize
-			: length > 4096 ? 4096 : length < 2048 ? BLOCK_SMALL_SIZE : 4096, &cache );
+			:
+#endif
+			*/
+			length > 4096 ? 4096 : length < 2048 ? BLOCK_SMALL_SIZE : 4096, &cache );
 		unsigned int blockSize = file->vol->sector_size[cache];
 		if( file->block == DIR_ALLOCATING_MARK ) {
   // directy now has a real block.
@@ -66544,30 +61702,34 @@ size_t CPROC sack_vfs_os_write_internal( struct sack_vfs_os_file* file, const vo
 #endif
 		if( length >= blockSize ) {
 			memcpy( block, data, blockSize );
-			SETFLAG( file->vol->dirty, cache );
+			SMUDGECACHE( file->vol, cache );
 			data += blockSize;
 			written += blockSize;
 			file->fpi += blockSize;
 			if( file->fpi > ( file->entry->filesize  ) ) {
 				updated = TRUE;
-				file->entry->filesize = file->fpi ;
+				file->filesize_ = file->entry->filesize = file->fpi ;
 			}
 			length -= blockSize;
 			cache = BC( FILE );
 			file->block = vfs_os_GetNextBlock( file->vol, file->block, &cache, GFB_INIT_NONE, TRUE
-				, file->blockSize
+				,
+#ifdef XX_VIRTUAL_OBJECT_STORE
+				file->blockSize
 				? file->blockSize
-				: (length>4096)?4096:length<2048?BLOCK_SMALL_SIZE:4096, (int*)&blockSize );
+				:
+#endif
+				(length>4096)?4096:length<2048?BLOCK_SMALL_SIZE:4096, (int*)&blockSize );
 		}
 		else {
 			memcpy( block, data, length );
-			SETFLAG( file->vol->dirty, cache );
+			SMUDGECACHE( file->vol, cache );
 			data += length;
 			written += length;
 			file->fpi += length;
 			if( file->fpi > (file->entry->filesize ) ) {
 				updated = TRUE;
-				file->entry->filesize = file->fpi ;
+				file->filesize_ = file->entry->filesize = file->fpi ;
 			}
 			length = 0;
 		}
@@ -66583,10 +61745,9 @@ size_t CPROC sack_vfs_os_write_internal( struct sack_vfs_os_file* file, const vo
 	}
 #endif
 	if( updated ) {
- // directory cache block (locked)
-		SETFLAG( file->vol->dirty, file->cache );
+		SMUDGECACHE( file->vol, file->cache );
 	}
-	if( cdata ) Release( cdata );
+	//if( cdata ) Release( cdata );
 	//if( !writeState )
 	file->vol->lock = 0;
 	return written;
@@ -66594,6 +61755,7 @@ size_t CPROC sack_vfs_os_write_internal( struct sack_vfs_os_file* file, const vo
 size_t CPROC sack_vfs_os_write( struct sack_vfs_os_file *file, const void * data_, size_t length ) {
 	return sack_vfs_os_write_internal( (struct sack_vfs_os_file* )file, data_, length, NULL );
 }
+#ifdef XX_VIRTUAL_OBJECT_STORE
 static enum sack_vfs_os_seal_states ValidateSeal( struct sack_vfs_os_file *file, char *data, size_t length ) {
 	BLOCKINDEX offset = (file->entry->name_offset );
 	uint32_t sealLen = (offset & DIRENT_NAME_OFFSET_FLAG_SEALANT) >> DIRENT_NAME_OFFSET_FLAG_SEALANT_SHIFT;
@@ -66622,20 +61784,23 @@ static enum sack_vfs_os_seal_states ValidateSeal( struct sack_vfs_os_file *file,
 		return success;
 	}
 }
-size_t CPROC sack_vfs_os_read_internal( struct sack_vfs_os_file *file, void * data_, size_t length ) {
+#endif
+size_t CPROC sack_vfs_os_read_internal( struct sack_vfs_os_file *file, uint64_t version, void * data_, size_t length ) {
 	char* data = (char*)data_;
 	size_t written = 0;
 	size_t ofs = file->fpi & BLOCK_MASK;
+#ifdef XX_VIRTUAL_OBJECT_STORE
 	if( (file->entry->name_offset ) & DIRENT_NAME_OFFSET_FLAG_READ_KEYED ) {
 		if( !file->readKey ) return 0;
 	}
-	if( ( file->entry->filesize  ) < ( file->fpi + length ) ) {
-		if( ( file->entry->filesize  ) < file->fpi )
+#endif
+	if( ( file->filesize_ ) < ( file->fpi + length ) ) {
+		if( ( file->filesize_ ) < file->fpi )
 			length = 0;
 		else
-			length = (size_t)(( file->entry->filesize ) - file->fpi);
+			length = (size_t)(( file->filesize_ ) - file->fpi);
 	}
-	if( !length ) {  return 0; }
+	if( !length || file->block == EOFBLOCK ) {  return 0; }
 	if( ofs ) {
 		enum block_cache_entries cache = BC(FILE);
 		uint8_t* block = (uint8_t*)vfs_os_BSEEK( file->vol, file->block, 0, &cache );
@@ -66647,7 +61812,13 @@ size_t CPROC sack_vfs_os_read_internal( struct sack_vfs_os_file *file, void * da
 			length -= blockSize - ofs;
 			file->fpi += blockSize - ofs;
 			cache = BC( FILE );
-			file->block = vfs_os_GetNextBlock( file->vol, file->block, &cache, GFB_INIT_NONE, TRUE, 0, &blockSize );
+			file->block = vfs_os_GetNextBlock( file->vol, file->block, &cache, GFB_INIT_NONE, FALSE, 0, &blockSize );
+#ifdef _DEBUG
+			if( file->block == EOFBLOCK ) {
+				lprintf( "bad read - file data too short" );
+				DebugBreak();
+			}
+#endif
 		} else {
 			memcpy( data, block + ofs, length );
 			written += length;
@@ -66667,7 +61838,13 @@ size_t CPROC sack_vfs_os_read_internal( struct sack_vfs_os_file *file, void * da
 			length -= blockSize;
 			file->fpi += blockSize;
 			cache = BC( FILE );
-			file->block = vfs_os_GetNextBlock( file->vol, file->block, &cache, GFB_INIT_NONE, TRUE, 0, (int*)&blockSize );
+			file->block = vfs_os_GetNextBlock( file->vol, file->block, &cache, GFB_INIT_NONE, FALSE, 0, (int*)&blockSize );
+#ifdef _DEBUG
+			if( file->block == EOFBLOCK ) {
+				lprintf( "bad read - file data too short" );
+				DebugBreak();
+			}
+#endif
 		} else {
 			memcpy( data, block, length );
 			written += length;
@@ -66675,8 +61852,10 @@ size_t CPROC sack_vfs_os_read_internal( struct sack_vfs_os_file *file, void * da
 			length = 0;
 		}
 	}
+#ifdef XX_VIRTUAL_OBJECT_STORE
 	if( file->readKey
-	   && ( file->fpi == ( file->entry->filesize ) )
+ //entry->filesize ) )
+	   && ( file->fpi == ( file->filesize_ ) )
 	   && ( (file->entry->name_offset)
 	      & DIRENT_NAME_OFFSET_FLAG_READ_KEYED) )
 	{
@@ -66694,32 +61873,36 @@ size_t CPROC sack_vfs_os_read_internal( struct sack_vfs_os_file *file, void * da
 	}
 	if( file->sealant
 		&& (void*)file->sealant != (void*)data
-		&& length == ( file->entry->filesize ) ) {
+ //file->entry->filesize ) ) {
+		&& length == ( file->filesize_ ) ) {
 		BLOCKINDEX saveSize = file->entry->filesize;
 		BLOCKINDEX saveFpi = file->fpi;
 		file->entry->filesize = ((file->entry->filesize
 			) + file->header.sealant.used + sizeof( BLOCKINDEX ))
 			;
-		sack_vfs_os_read_internal( file, (char*)file->sealant, file->header.sealant.used );
+		sack_vfs_os_read_internal( file, 0, (char*)file->sealant, file->header.sealant.used );
 		file->entry->filesize = saveSize;
 		file->fpi = saveFpi;
 		file->sealed = ValidateSeal( file, data, length );
 	}
+#endif
 	return written;
 }
 size_t CPROC sack_vfs_os_read( struct sack_vfs_os_file* file, void* data_, size_t length ) {
 	size_t result;
 	while( LockedExchange( &file->vol->lock, 1 ) ) Relinquish();
-	result = sack_vfs_os_read_internal( (struct sack_vfs_os_file*)file, data_, length );
+	result = sack_vfs_os_read_internal( (struct sack_vfs_os_file*)file, 0, data_, length );
 	file->vol->lock = 0;
 	return result;
 }
+#ifdef XX_VIRTUAL_OBJECT_STORE
 static BLOCKINDEX sack_vfs_os_read_patches( struct sack_vfs_os_file *file ) {
 	size_t written = 0;
 	BLOCKINDEX saveFpi = file->fpi;
 	size_t length;
 	while( LockedExchange( &file->vol->lock, 1 ) ) Relinquish();
-	length = (size_t)(file->entry->filesize);
+//entry->filesize);
+	length = (size_t)(file->filesize_ );
 	if( !length ) { file->vol->lock = 0; return 0; }
 	sack_vfs_os_seek_internal( file, length, SEEK_SET );
 #if 0
@@ -66778,6 +61961,7 @@ static size_t sack_vfs_os_set_reference_block( struct sack_vfs_os_file *file, BL
 	file->vol->lock = 0;
 	return written;
 }
+#endif
 static void sack_vfs_os_unlink_file_entry( struct sack_vfs_os_volume *vol, struct sack_vfs_os_file *dirinfo, BLOCKINDEX first_block, LOGICAL deleted ) {
 	//FPI entFPI, struct directory_entry *entry, struct directory_entry *entkey
 	BLOCKINDEX block, _block;
@@ -66792,7 +61976,7 @@ static void sack_vfs_os_unlink_file_entry( struct sack_vfs_os_volume *vol, struc
 	}
 	if( !deleted ) {
 		// delete the file entry now; this disk entry may be reused immediately.
-		dirinfo->_entry.first_block = dirinfo->_first_block;
+		dirinfo->entry_.first_block = dirinfo->_first_block;
 		dirinfo->_first_block = dirinfo->entry->first_block = 0;
 		SMUDGECACHE( vol, dirinfo->cache );
 	}
@@ -66821,13 +62005,14 @@ static void sack_vfs_os_unlink_file_entry( struct sack_vfs_os_volume *vol, struc
 					AddDataItem( &vol->pdlFreeSmallBlocks, &_block );
 				else
 					AddDataItem( &vol->pdlFreeBlocks, &_block );
+				LoG( "unlink storing free block:%d", _block );
 				_block = block;
 			} while( block != EOFBLOCK );
 			// this deletes the allocated name
 			// it also removes the directory entry from list of entries
  // timelineEntry type is larger than index in some configurations; but won't exceed those bounds
 			deleteTimelineIndex( vol, (BLOCKINDEX)dirinfo->entry->timelineEntry );
-			deleteDirectoryEntryName( vol, dirinfo, dirinfo->entry->name_offset & DIRENT_NAME_OFFSET_OFFSET, dirinfo->cache );
+			deleteDirectoryEntryName( vol, dirinfo, dirinfo->entry->name_offset & DIRENT_NAME_OFFSET_OFFSET, dirinfo->cache, dirinfo->dir_block );
 	}
 }
 static void _os_shrinkBAT( struct sack_vfs_os_file *file ) {
@@ -66861,6 +62046,9 @@ static void _os_shrinkBAT( struct sack_vfs_os_file *file ) {
 				AddDataItem( &vol->pdlFreeSmallBlocks, &_block );
 			else
 				AddDataItem( &vol->pdlFreeBlocks, &_block );
+#ifdef DEBUG_FILE_TRUNCATE
+			LoG( "shrink storing free block:%d", _block );
+#endif
 			this_BAT[_block % BLOCKS_PER_BAT] = 0;
 		} else {
 			if( this_BAT[BLOCKS_PER_BAT] ) {
@@ -66884,7 +62072,9 @@ static void _os_shrinkBAT( struct sack_vfs_os_file *file ) {
 	} while( block != EOFBLOCK );
 	if( !file->entry->filesize ) {
 		file->_first_block = file->block = file->entry->first_block = EOFBLOCK;
+#ifdef DEBUG_FILE_TRUNCATE
 		LoG( "Truncated file block chain length is now:%d", nBlock );
+#endif
 		file->blockChainLength = nBlock;
 	}
 	if( smallBlocks > ( 4096 / BLOCK_SMALL_SIZE ) * 2 ) {
@@ -66893,10 +62083,9 @@ static void _os_shrinkBAT( struct sack_vfs_os_file *file ) {
 }
 size_t CPROC sack_vfs_os_truncate_internal( struct sack_vfs_os_file *file ) {
 	if( file->entry->filesize != file->fpi ) {
-		file->entry->filesize = file->fpi;
+		file->filesize_ = file->entry->filesize = file->fpi;
 		_os_shrinkBAT( file );
- // directory cache block (locked)
-		SETFLAG( file->vol->dirty, file->cache );
+		SMUDGECACHE( file->vol, file->cache );
 	}
 	return (size_t)file->fpi;
 }
@@ -66913,7 +62102,7 @@ int sack_vfs_os_close_internal( struct sack_vfs_os_file *file, int unlock ) {
 	{
 		enum block_cache_entries cache = BC(NAMES);
 		static char fname[256];
-		FPI name_ofs = file->_entry.name_offset;
+		FPI name_ofs = file->entry_.name_offset;
 		// this following line needs to be updated.
 		//FPI base = (const char *)
 		//char const *filename = (char const *)vfs_os_DSEEK( file->vol, name_ofs, 0, &cache ); // have to do the seek to the name block otherwise it might not be loaded.
@@ -66942,8 +62131,10 @@ int sack_vfs_os_close_internal( struct sack_vfs_os_file *file, int unlock ) {
 		}
 	}
 	//Deallocate( char *, file->filename );
+#ifdef XX_VIRTUAL_OBJECT_STORE
 	if( file->sealant )
 		Deallocate( uint8_t*, file->sealant );
+#endif
 	if( file->vol->closed ) sack_vfs_os_unload_volume( file->vol );
 	if( unlock ) file->vol->lock = 0;
 	DeleteFromSet( VFS_OS_FILE, &l.files, file );
@@ -67015,7 +62206,6 @@ static int _os_iterate_find( struct sack_vfs_os_find_info *_info ) {
 					subnode.leadinDepth = node.leadinDepth + 1;
 					subnode.leadin[subnode.leadinDepth] = 0;
 					subnode.this_dir_block = block;
-					if( subnode.this_dir_block > 5000 ) DebugBreak();
 					PushData( &info->pds_directories, &subnode );
 				}
 			}
@@ -67031,16 +62221,16 @@ static int _os_iterate_find( struct sack_vfs_os_find_info *_info ) {
 			enum block_cache_entries  timeCache = BC( TIMELINE );
 			reloadTimeEntry( &time, info->vol, (next_entries[n].timelineEntry) VTReadWrite GRTENoLog  DBG_SRC );
 			if( !time.disk->time ) DebugBreak();
-			if( time.disk->priorIndex )
+			if( time.disk->priorTime )
 			{
 				enum block_cache_entries cache;
-				struct storageTimelineNode* prior = getRawTimeEntry( info->vol, time.disk->priorIndex, &cache GRTENoLog DBG_SRC );
-				while( prior->priorIndex ) prior = getRawTimeEntry( info->vol, prior->priorIndex, &cache GRTENoLog DBG_SRC );
-				info->ctime = prior->time;
+				struct storageTimelineNode* prior = getRawTimeEntry( info->vol, time.disk->priorTime, &cache GRTENoLog DBG_SRC );
+				while( prior->priorTime ) prior = getRawTimeEntry( info->vol, prior->priorTime, &cache GRTENoLog DBG_SRC );
+				info->ctime = (prior->time/1000000)<<8 | prior->timeTz;
 			}
 			else
-				info->ctime = time.disk->time;
-			info->wtime = time.disk->time;
+				info->ctime = (time.disk->time / 1000000) << 8 | time.disk->timeTz;
+			info->wtime = (time.disk->time / 1000000) << 8 | time.disk->timeTz;
 			dropRawTimeEntry( info->vol, time.diskCache GRTENoLog DBG_SRC );
 			// if file is deleted; don't check it's name.
 			info->filesize = (size_t)(next_entries[n].filesize);
@@ -67108,7 +62298,6 @@ static int _os_iterate_find( struct sack_vfs_os_find_info *_info ) {
 					continue;
 			}
 			node.thisent = n + 1;
-			if( node.this_dir_block > 5000 ) DebugBreak();
 			PushData( &info->pds_directories, &node );
 			return 1;
 		}
@@ -67231,6 +62420,7 @@ uintptr_t CPROC sack_vfs_os_file_ioctl_internal( struct sack_vfs_os_file* file, 
 	{
 		//struct sack_vfs_file *file = (struct sack_vfs_file *)psvInstance;
 		int *result = va_arg( args, int* );
+#ifdef XX_VIRTUAL_OBJECT_STORE
 		if( file->sealant ) {
 			switch( file->sealed ) {
 			case SACK_VFS_OS_SEAL_STORE:
@@ -67243,9 +62433,11 @@ uintptr_t CPROC sack_vfs_os_file_ioctl_internal( struct sack_vfs_os_file* file, 
 		}
 		else
 			(*result) = 1;
+#endif
 	}
 	break;
 	case SOSFSFIO_PROVIDE_SEALANT:
+#ifdef XX_VIRTUAL_OBJECT_STORE
 	{
 		const char *sealant = va_arg( args, const char * );
 		size_t sealantLen = va_arg( args, size_t );
@@ -67271,8 +62463,10 @@ uintptr_t CPROC sack_vfs_os_file_ioctl_internal( struct sack_vfs_os_file* file, 
 				| ((len >> 2) << 17)) );
 		}
 	}
+#endif
 	break;
 	case SOSFSFIO_PROVIDE_READKEY:
+#ifdef XX_VIRTUAL_OBJECT_STORE
 	{
 		const char *sealant = va_arg( args, const char * );
 		size_t sealantLen = va_arg( args, size_t );
@@ -67288,11 +62482,36 @@ uintptr_t CPROC sack_vfs_os_file_ioctl_internal( struct sack_vfs_os_file* file, 
 				| DIRENT_NAME_OFFSET_FLAG_READ_KEYED) );
 		}
 	}
+#endif
 	break;
+	case SOSFSFIO_SET_TIME:
+	{
+		uint64_t timestamp = va_arg( args, uint64_t );
+		int8_t tz = (uint8_t)va_arg( args, int );
+		return sack_vfs_os_set_time( file, timestamp, tz );
+	}
+	break;
+	case SOSFSFIO_GET_TIME:
+	{
+		uint64_t** timeArray = va_arg( args, uint64_t** );
+		int8_t** tzArray = va_arg( args, int8_t** );
+		size_t* timeCount  = va_arg( args, size_t* );
+		return file->entry->timelineEntry;
+	}
+	break;
+	case SOSFSFIO_GET_TIMES:
+	{
+		uint64_t** timeArray = va_arg( args, uint64_t** );
+		int8_t** tzArray = va_arg( args, int8_t** );
+		size_t* timeCount  = va_arg( args, size_t* );
+		return sack_vfs_os_get_times( file, timeArray, tzArray, timeCount );
+	}
+	break;
+ // automatic managment is good enough?
 	case SOSFSFIO_SET_BLOCKSIZE:
 	{
 		int size = va_arg( args, int );
-		file->blockSize = size;
+		//file->blockSize = size;
 	}
 	break;
 	}
@@ -67313,13 +62532,47 @@ uintptr_t CPROC sack_vfs_os_system_ioctl_internal( struct sack_vfs_os_volume *vo
 	default:
 		// unhandled/ignored opcode
 		return FALSE;
+	case SOSFSSIO_OPEN_VERSION:
+		{
+			const char * name;name = va_arg( args, const char* );
+			uint64_t version = va_arg( args, uint64_t );
+			return (uintptr_t)sack_vfs_os_openfile_internal( vol, name, version, FALSE );
+		}
+		break;
+	case SOSFSSIO_NEW_VERSION:
+		{
+			const char * name;name = va_arg( args, const char* );
+			return (uintptr_t)sack_vfs_os_openfile_internal( vol, name, 0, TRUE );
+		}
+		break;
+	case SOSFSSIO_OPEN_TIMELINE:
+		{
+			return (uintptr_t)sack_vfs_os_get_time_cursor( vol );
+		}
+		break;
+	case SOSFSSIO_READ_TIMELINE:
+		{
+			struct sack_vfs_os_time_cursor* cursor;cursor = va_arg(args, struct sack_vfs_os_time_cursor* );
+			int step = va_arg( args, int );
+			uint64_t timestamp; timestamp = va_arg( args, uint64_t );
+			uint64_t* result_entry; result_entry = va_arg( args, uint64_t* );
+			const char ** filename;filename = va_arg( args, const char ** );
+			uint64_t* timestamp_result;timestamp_result = va_arg( args, uint64_t* );
+			int8_t* tz_result;tz_result = va_arg( args, int8_t* );
+			const char** buffer;buffer = va_arg( args, const char** );
+			size_t* size_result;size_result = va_arg( args, size_t* );
+			sack_vfs_os_read_time_cursor( cursor, step, timestamp, result_entry, filename, timestamp_result, tz_result, buffer, size_result );
+			return TRUE;
+		}
+		break;
 	case SOSFSSIO_LOAD_OBJECT:
 		return FALSE;
 	case SOSFSSIO_PATCH_OBJECT:
 		{
   // seal input is a constant, generate random meta key
-		LOGICAL owner = va_arg( args, LOGICAL );
-		char *objIdBuf = va_arg( args, char * );
+		LOGICAL owner;owner = va_arg( args, LOGICAL );
+		char *objIdBuf;objIdBuf = va_arg( args, char * );
+		/*
 		size_t objIdBufLen = va_arg( args, size_t );
 		char *patchAuth = va_arg( args, char * );
 		size_t patchAuthLen = va_arg( args, size_t );
@@ -67331,6 +62584,8 @@ uintptr_t CPROC sack_vfs_os_system_ioctl_internal( struct sack_vfs_os_volume *vo
 		size_t keyBufLen = va_arg( args, size_t );
 		char *idBuf = va_arg( args, char * );
 		size_t idBufLen = va_arg( args, size_t );
+		*/
+#ifdef XX_VIRTUAL_OBJECT_STORE
 		if( sack_vfs_os_exists( vol, objIdBuf ) ) {
 			struct sack_vfs_os_file* file = (struct sack_vfs_os_file*)sack_vfs_os_openfile( vol, objIdBuf );
 			BLOCKINDEX patchBlock = sack_vfs_os_read_patches( file );
@@ -67376,11 +62631,13 @@ uintptr_t CPROC sack_vfs_os_system_ioctl_internal( struct sack_vfs_os_volume *vo
 				}
 			}
 		}
+#endif
  // object to patch was not found.
 		return FALSE;
 	}
 	break;
 	case SOSFSSIO_STORE_OBJECT:
+	#if 0
 	{
   // seal input is a constant, generate random meta key
 		LOGICAL owner = va_arg( args, LOGICAL );
@@ -67413,6 +62670,7 @@ uintptr_t CPROC sack_vfs_os_system_ioctl_internal( struct sack_vfs_os_volume *vo
 			}
 			else {
 				struct sack_vfs_os_file* file = (struct sack_vfs_os_file*)sack_vfs_os_openfile( vol, idBuf[0] );
+#ifdef XX_VIRTUAL_OBJECT_STORE
 				if( sealBuf ) {
 					file->sealant = (uint8_t*)seal;
 					_os_SetSmallBlockUsage( &file->header.sealant, (uint8_t)strlen( seal ) );
@@ -67423,14 +62681,17 @@ uintptr_t CPROC sack_vfs_os_system_ioctl_internal( struct sack_vfs_os_volume *vo
 					_os_SetSmallBlockUsage( &file->header.sealant, 0 );
 					//file->sealantLen = 0;
 				}
+#endif
 				sack_vfs_os_write_internal( file, objBuf, objBufLen, NULL );
 				sack_vfs_os_close_internal( file, FALSE );
 			}
 			return TRUE;
 		}
 	}
+#endif
 	break;
 	}
+	return 0;
 }
 uintptr_t CPROC sack_vfs_os_system_ioctl_interface( uintptr_t psvInstance, uintptr_t opCode, va_list args ) {
 	return sack_vfs_os_system_ioctl_internal( (struct sack_vfs_os_volume*)psvInstance, opCode, args );
@@ -67440,33 +62701,62 @@ uintptr_t CPROC sack_vfs_os_system_ioctl( struct sack_vfs_os_volume* vol, uintpt
 	va_start( args, opCode );
 	return sack_vfs_os_system_ioctl_internal( vol, opCode, args );
 }
-LOGICAL sack_vfs_os_get_times( struct sack_vfs_os_file* file, uint64_t** timeArray, size_t* timeCount ) {
+LOGICAL sack_vfs_os_get_times( struct sack_vfs_os_file* file, uint64_t** timeArray, int8_t** tzArray, size_t* timeCount ) {
 	if( !timeArray ) return TRUE;
-	uint64_t scratchTime;
-	PDATALIST pdlTimes = CreateDataList( sizeof( uint64_t ) );
+	struct scratchTime {
+		uint64_t scratchTime;
+		uint8_t scratchTz;
+	} scratch;
+	PDATALIST pdlTimes = CreateDataList( sizeof( scratch ) );
 	struct sack_vfs_os_volume* vol = file->vol;
 	struct memoryTimelineNode time;
 	enum block_cache_entries  timeCache = BC( TIMELINE );
 	reloadTimeEntry( &time, vol, file->entry->timelineEntry VTReadWrite GRTENoLog  DBG_SRC );
 	if( !time.disk->time ) DebugBreak();
-	scratchTime = ( (time.disk->time / 1000000 ) <<8) | time.disk->timeTz;
-	AddDataItem( &pdlTimes, &scratchTime );
-	if( time.disk->priorIndex ) {
-		enum block_cache_entries cache;
-		struct storageTimelineNode* prior = getRawTimeEntry( vol, time.disk->priorIndex, &cache GRTENoLog DBG_SRC );
-		scratchTime = ( ( time.disk->time / 1000000 ) << 8 ) | time.disk->timeTz;
-		AddDataItem( &pdlTimes, &scratchTime );
-		while( prior->priorIndex ) {
-			prior = getRawTimeEntry( vol, prior->priorIndex, &cache GRTENoLog DBG_SRC );
-			scratchTime = ( ( time.disk->time / 1000000 ) << 8 ) | time.disk->timeTz;
-			AddDataItem( &pdlTimes, &scratchTime );
+	scratch.scratchTime = time.disk->time;
+	scratch.scratchTz = time.disk->timeTz;
+	AddDataItem( &pdlTimes, &scratch );
+	if( time.disk->priorTime ) {
+		BLOCKINDEX priorTime = time.disk->priorTime;
+		while( priorTime ) {
+			enum block_cache_entries cache;
+			struct storageTimelineNode* prior = getRawTimeEntry( vol, priorTime, &cache GRTENoLog DBG_SRC );
+			scratch.scratchTime = prior->time;
+			scratch.scratchTz = prior->timeTz;
+			priorTime = prior->priorTime;
+			dropRawTimeEntry( file->vol, cache GRTENoLog DBG_SRC );
+			AddDataItem( &pdlTimes, &scratch );
 		}
 	}
 	dropRawTimeEntry( vol, time.diskCache GRTENoLog DBG_SRC );
 	timeArray[0] = NewArray( uint64_t, pdlTimes->Cnt );
-	MemCpy( timeArray[0], pdlTimes->data, pdlTimes->Cnt * sizeof( timeArray[0] ) );
+	tzArray[0] = NewArray( int8_t, pdlTimes->Cnt );
+	{
+		struct scratchTime* st;
+		INDEX idx;
+		DATA_FORALL( pdlTimes, idx, struct scratchTime*, st ) {
+			timeArray[0][idx] = st->scratchTime;
+			tzArray[0][idx] = st->scratchTz;
+		}
+	}
+	//MemCpy( timeArray[0], pdlTimes->data, pdlTimes->Cnt * sizeof( timeArray[0] ) );
 	timeCount[0] = pdlTimes->Cnt;
+	DeleteDataList( &pdlTimes );
 	return TRUE;
+}
+LOGICAL sack_vfs_os_set_time( struct sack_vfs_os_file* file, uint64_t timeVal, int8_t tz ) {
+	struct sack_vfs_os_volume* vol = file->vol;
+	struct memoryTimelineNode time;
+	enum block_cache_entries  timeCache = BC( TIMELINE );
+	reloadTimeEntry( &time, vol, file->entry->timelineEntry VTReadWrite GRTENoLog  DBG_SRC );
+	//int tz = timeVal & 0xFF;
+	//timeVal = ( timeVal >> 8 ) * 1000000LL;
+	return setTimeEntryTime( &time, vol, timeVal, tz );
+}
+LOGICAL sack_vfs_os_halt( struct sack_vfs_os_volume* volume ) {
+	LOGICAL prior = volume->flags.halted;
+	volume->flags.halted = TRUE;
+	return prior;
 }
 #ifndef USE_STDIO
 static struct file_system_interface sack_vfs_os_fsi = {
@@ -70890,7 +66180,7 @@ void NeedBits( struct random_context *ctx )
 {
 	if( ctx->use_versionK12 ) {
 #if USE_K12_LONG_SQUEEZE
-		if( ctx->f.K12i.phase == ABSORBING || ctx->total_bits_used > K12_SQUEEZE_LENGTH ) {
+		if( ctx->f.K12i.phase == ABSORBING || ctx->total_bits_used >= K12_SQUEEZE_LENGTH ) {
 			if( ctx->f.K12i.phase == SQUEEZING ) {
 				KangarooTwelve_Initialize( &ctx->f.K12i, 0 );
 				KangarooTwelve_Update( &ctx->f.K12i, ctx->s.entropy4, K12_DIGEST_SIZE );
@@ -70964,6 +66254,10 @@ void NeedBits( struct random_context *ctx )
 	ctx->bits_used = 0;
 }
 void SRG_StepEntropy( struct random_context* ctx ) {
+#if USE_K12_LONG_SQUEEZE
+	if( ctx->use_versionK12 )
+		ctx->total_bits_used = K12_SQUEEZE_LENGTH;
+#endif
 	NeedBits( ctx );
 }
 struct random_context *SRG_CreateEntropyInternal( void (*getsalt)( uintptr_t, POINTER *salt, size_t *salt_size ), uintptr_t psv_user
