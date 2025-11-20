@@ -5378,6 +5378,20 @@ SYSTEM_PROC(void, SACKSystemSetWorkingPath)( CTEXTSTR name );
 // Set the path of this library.
 SYSTEM_PROC(void, SACKSystemSetLibraryPath)( CTEXTSTR name );
 #endif
+/*
+* Creates a process-identified exit event which can be signaled to terminate the process.
+*/
+SYSTEM_PROC( void, EnableExitEvent )( void );
+/*
+  Add callback which is called when the exit event is executed.
+  The callback can return non-zero to prevent the task from exiting; but the event is no
+  longer valid, and cannot be triggered again.
+*/
+SYSTEM_PROC( void, AddKillSignalCallback )( int( *cb )( uintptr_t ), uintptr_t );
+/*
+  Remove a callback which was added to event callback list.
+*/
+SYSTEM_PROC( void, RemoveKillSignalCallback )( int( *cb )( uintptr_t ), uintptr_t );
 #if _WIN32
 /*
   moves the window of the task; if there is a main window for the task within the timeout perioud.
@@ -5407,20 +5421,6 @@ SYSTEM_PROC( void, MoveTaskWindowToDisplay )( PTASK_INFO task, int timeout, int 
   1+ is the first monitor and subsequent monitors
 */
 SYSTEM_PROC( void, MoveTaskWindowToMonitor )( PTASK_INFO task, int timeout, int display, void cb( uintptr_t, LOGICAL ), uintptr_t psv );
-/*
-* Creates a process-identified exit event which can be signaled to terminate the process.
-*/
-SYSTEM_PROC( void, EnableExitEvent )( void );
-/*
-  Add callback which is called when the exit event is executed.
-  The callback can return non-zero to prevent the task from exiting; but the event is no
-  longer valid, and cannot be triggered again.
-*/
-SYSTEM_PROC( void, AddKillSignalCallback )( int( *cb )( uintptr_t ), uintptr_t );
-/*
-  Remove a callback which was added to event callback list.
-*/
-SYSTEM_PROC( void, RemoveKillSignalCallback )( int( *cb )( uintptr_t ), uintptr_t );
 /*
   Refresh internal window handle for task; uses internal handle as cached value for performance.
 */
@@ -21924,7 +21924,7 @@ static const _POINT EXTERNAL_NAME(__X) = { ONE, ZERO, ZERO};
 static const _POINT EXTERNAL_NAME(__Y) = {ZERO,  ONE, ZERO};
 static const _POINT EXTERNAL_NAME(__Z) = {ZERO, ZERO,  ONE};
 #if (DIMENSIONS > 3 )
-static const _POINT __W = {ZERO, ZERO, ZERO, ONE};
+static const _POINT EXTERNAL_NAME(__W) = {ZERO, ZERO, ZERO, ONE};
 #endif
 #if defined( __GNUC__  ) && defined( __cplusplus )
 #ifdef __STATIC__
@@ -23952,6 +23952,7 @@ typedef struct space_pool_structure {
 #ifdef _WIN32
 //(0x10000 * 0x1000) //256 megs?
 #define FILE_GRAN g.si.dwAllocationGranularity
+//static SYSTEM_INFO const zero_si = {{{0}}}; /* C++ is complicating how to inizialize this, {} used to work, now {0} is wanted, which then wants {{{0}}}... */
 #else
 #define FILE_GRAN g.pagesize
 #endif
@@ -24003,7 +24004,7 @@ static struct global_memory_tag global_memory_data = { 0x10000 * 0x08
 																	  , 0
 																	  , NULL
 #ifdef _WIN32
-																	  , {}
+																	  , {{{0}}}
 #endif
 																	  , 0
 																	  , 0
@@ -24028,7 +24029,7 @@ struct global_memory_tag global_memory_data = { 0x10000 * 0x08, 0, 0
 																	  , 0
 																	  , NULL
 #ifdef _WIN32
-																	  , {}
+																	  , {{{0}}}
 #endif
 																	  , 0
 																	  , 0
@@ -24051,7 +24052,7 @@ struct global_memory_tag global_memory_data = { 0x10000 * 0x08, 1, 1
 																	  , 0
 																	  , NULL
 #ifdef _WIN32
-																	  , {}
+																	  , {{{0}}}
 #endif
 																	  , 0
 																	  , 0
@@ -38153,6 +38154,8 @@ static void threadInit( void ) {
  // edge case the main thread might init twice.
 	if( !FileSysThreadInfo.cwd ) {
 		FileSysThreadInfo.cwd = ExpandPath( "." );
+	}
+	if( !FileSysThreadInfo._mounted_file_systems ) {
 		FileSysThreadInfo.default_mount = ( *winfile_local )._default_mount;
 		FileSysThreadInfo._mounted_file_systems = &( *winfile_local )._mounted_file_systems;
 		//FileSysThreadInfo.mounted_file_systems = ( *winfile_local )._mounted_file_systems;
@@ -38174,6 +38177,7 @@ static void LocalInit( void )
 			sack_register_filesystem_interface( "native", &native_fsi );
 		if( !( *winfile_local )._default_mount )
 			( *winfile_local )._default_mount = sack_mount_filesystem( "native", &native_fsi, 1000, (uintptr_t)NULL, TRUE );
+ // this only works for threads WE create... maybe that's fixable someday
 		OnThreadCreate( threadInit );
 		OnThreadExit( threadExit );
 		InitializeCriticalSec( &( *winfile_local ).cs_files );
@@ -40002,7 +40006,7 @@ LOGICAL sack_exists( const char* filename )
 //----------------------------------------------------------------------------
 LOGICAL sack_isPathEx( const char* filename, struct file_system_mounted_interface* mount )
 {
-	if( mount && mount->fsi && mount->fsi->exists ) {
+	if( mount && mount->fsi && mount->fsi->is_directory ) {
 		{
 			struct directory* d;
 			INDEX i;
@@ -40015,7 +40019,7 @@ LOGICAL sack_isPathEx( const char* filename, struct file_system_mounted_interfac
 		}
 		int result = mount->fsi->is_directory( mount->psvInstance, filename );
 		return result;
-	}
+	} else if( !mount || !mount->fsi ) return sack_isPath( filename );
 	return FALSE;
 }
 //----------------------------------------------------------------------------
@@ -40260,6 +40264,7 @@ typedef struct _FILE_DISPOSITION_INFORMATION {
 	BOOLEAN DeleteFile;
 } FILE_DISPOSITION_INFORMATION, * PFILE_DISPOSITION_INFORMATION;
 #endif
+static FILE_BASIC_INFORMATION zero_file_basic_information;
 LOGICAL windowDeepDelete( const char* path )
 {
 	WCHAR* pathw = CharWConvert( path );
@@ -40308,7 +40313,7 @@ LOGICAL windowDeepDelete( const char* path )
 	}
 	if( info.dwFileAttributes & FILE_ATTRIBUTE_READONLY ) {
 		/* Remove read-only attribute */
-		FILE_BASIC_INFORMATION basic = {};
+		FILE_BASIC_INFORMATION basic = zero_file_basic_information;
 		basic.FileAttributes = ( info.dwFileAttributes & ~FILE_ATTRIBUTE_READONLY ) |
 			FILE_ATTRIBUTE_ARCHIVE;
 		status = pNtSetInformationFile( handle,
@@ -40710,6 +40715,7 @@ static int CPROC sack_filesys_exists( uintptr_t psv, const char* filename ) {
 	return FALSE;
 }
 struct file_system_mounted_interface* sack_get_default_mount( void ) {
+	if( !FileSysThreadInfo._mounted_file_systems ) threadInit();
 	return FileSysThreadInfo.default_mount;
 }
 struct file_system_interface* sack_get_mounted_filesystem_interface( struct file_system_mounted_interface* mount ) {
@@ -47101,6 +47107,7 @@ CTEXTSTR FormatColor( CDATA color )
 #ifndef _POSIX_C_SOURCE
 #  define _POSIX_C_SOURCE 2
 #endif
+#define _POSIX_SOURCE
 #ifdef WIN32
 //#undef StrDup
 //#undef StrRChr
@@ -47266,9 +47273,9 @@ struct local_systemlib_data {
 	LOGICAL (CPROC*ExternalLoadLibrary)( const char *filename );
  // please Release or Deallocate the reutrn value
 	char * (CPROC*ExternalFindProgram)( const char *filename );
-	// on XP this is in PSAPI.DLL later it's in Kernel32.DLL
-#ifdef WIN32
 	PDATALIST killEventCallbacks;
+#ifdef WIN32
+	// on XP this is in PSAPI.DLL later it's in Kernel32.DLL
 	BOOL (WINAPI* EnumProcessModules)( HANDLE hProcess, HMODULE *lphModule
 	                                 , DWORD cb, LPDWORD lpcbNeeded );
 #endif
@@ -47649,32 +47656,89 @@ static uintptr_t KillEventThread( PTHREAD thread ) {
 	CloseHandle( hRestartEvent );
 	return 0;
 }
-void AddKillSignalCallback( int( *cb )( uintptr_t ), uintptr_t psv ) {
+void EnableExitEvent( void ) {
+	char eventName[256];
+	snprintf( eventName, 256, "Global\\%s:exit", GetProgramName() );
+	//lprintf( "Starting exit event thread... %s", eventName );
+	ThreadTo( KillEventThread, (uintptr_t)eventName );
+	while( eventName[0] ) Relinquish();
+}
+#endif
+#ifdef __LINUX__
+static char *exitEventName;
+static int hDir;
+ATEXIT( cleanupEvent ) {
+	if( exitEventName ) {
+		unlinkat( hDir, exitEventName, 0 );
+		Deallocate( char*, exitEventName ); exitEventName = NULL;
+	}
+}
+static uintptr_t KillEventThread( PTHREAD thread ) {
+	char *eventName      = (char *)GetThreadParam( thread );
+	exitEventName = StrDup( eventName );
+	char bRestartEvent = 0;
+	{
+		int hDir = open( "/tmp", O_RDONLY | O_DIRECTORY );
+		int rc   = mkfifoat( hDir, eventName, 0666 );
+		if( rc ) {
+			// failure
+		}
+		int file = openat( hDir, eventName, O_RDONLY );
+ // ack done init...
+		eventName[ 0 ] = 0;
+		int status = read( file, &bRestartEvent, sizeof( bRestartEvent ) );
+		if( status > 0 ) {
+			INDEX idx;
+			struct callback_info *ci;
+			unlinkat( hDir, exitEventName, 0 );
+			Deallocate( char*, exitEventName );
+			exitEventName = NULL;
+			close( file );
+			// int( *cb )( void );
+			int preventShutdown = 0;
+			DATA_FORALL( l.killEventCallbacks, idx, struct callback_info *, ci ) {
+				// lprintf( "callback: %p %p %d", ci->cb, ci->psv, ci->deleted );
+				if( !ci->deleted )
+					preventShutdown |= ci->cb( ci->psv );
+			}
+			// lprintf( "Callbacks done: %d", preventShutdown );
+			if( !preventShutdown ) {
+				InvokeExits();
+				exit( 0 );
+			}
+		}
+else lprintf( "Failure %d", status );
+	}
+	return 0;
+}
+void EnableExitEvent( void ) {
+	char eventName[ 256 ];
+	snprintf( eventName, 256, "Global\\%s:exit", GetProgramName() );
+	// lprintf( "Starting exit event thread... %s", eventName );
+	ThreadTo( KillEventThread, (uintptr_t)eventName );
+	while( eventName[ 0 ] )
+		Relinquish();
+}
+#endif
+void AddKillSignalCallback( int ( *cb )( uintptr_t ), uintptr_t psv ) {
 	struct callback_info ci;
-	ci.cb = cb;
-	ci.psv = psv;
+	ci.cb      = cb;
+	ci.psv     = psv;
 	ci.deleted = 0;
-	if( !l.killEventCallbacks ) l.killEventCallbacks = CreateDataList( sizeof( struct callback_info ) );
+	if( !l.killEventCallbacks )
+		l.killEventCallbacks = CreateDataList( sizeof( struct callback_info ) );
 	AddDataItem( &l.killEventCallbacks, &ci );
 }
-void RemoveKillSignalCallback( int( *cb )( uintptr_t ), uintptr_t psv ) {
+void RemoveKillSignalCallback( int ( *cb )( uintptr_t ), uintptr_t psv ) {
 	struct callback_info *ci;
 	INDEX idx;
-	DATA_FORALL( l.killEventCallbacks, idx, struct callback_info*, ci ) {
+	DATA_FORALL( l.killEventCallbacks, idx, struct callback_info *, ci ) {
 		if( ci->cb == cb && ci->psv == psv ) {
 			ci->deleted = TRUE;
 			break;
 		}
 	}
 }
-void EnableExitEvent( void ) {
-	char eventName[256];
-	snprintf( eventName, 256, "Global\\%s(%d):exit", GetProgramName(), GetCurrentProcessId() );
-	//lprintf( "Starting exit event thread... %s", eventName );
-	ThreadTo( KillEventThread, (uintptr_t)eventName );
-	while( eventName[0] ) Relinquish();
-}
-#endif
 static void CPROC SetupSystemServices( POINTER mem, uintptr_t size )
 {
 	struct local_systemlib_data *init_l = (struct local_systemlib_data *)mem;
@@ -48568,7 +48632,7 @@ LOGICAL CPROC StopProgram( PTASK_INFO task )
 		{
 			char eventName[256];
 			HANDLE hEvent;
-			snprintf( eventName, 256, "Global\\%s(%d):exit", task->name, task->pi.dwProcessId );
+			snprintf( eventName, 256, "Global\\%s:exit", task->name );
 			hEvent = OpenEvent( EVENT_MODIFY_STATE, FALSE, eventName );
 			//lprintf( "Signal process event: %s", eventName );
 			if( hEvent != NULL ) {
@@ -49617,7 +49681,7 @@ SYSTEM_PROC( generic_function, LoadFunctionExx )( CTEXTSTR libname, CTEXTSTR fun
 			//if( l.flags.bLog )
 #  ifdef _DEBUG
 			for( int i = 0; i < 4; i++ )
-				lprintf( "Error LoadLibrary: %5d %ls", errors[i].error, errors[i].name );
+				lprintf( "Error LoadLibrary: %5d %ls %d", errors[i].error, errors[i].name, i==0?err1:i==1?err2:i==2?err3:err4 );
 #  else
 			_xlprintf( 2 DBG_RELAY )("Attempt to load [%ls][%ls][%ls]%ls(%s) failed. %d %d %d %d"
 					, library->cur_full_name
@@ -55975,9 +56039,9 @@ static LOGICAL ExpandVolume( struct sack_vfs_volume *vol ) {
 				actual_disk = (struct sack_vfs_disk*)GetExtraData( new_disk );
 				if( actual_disk ) {
 					if( ( ( (uintptr_t)actual_disk - (uintptr_t)new_disk ) < vol->dwSize ) ) {
-						lprintf( "Size to check %zd", (uintptr_t)actual_disk - (uintptr_t)new_disk );
+						//lprintf( "Size to check %zd", (uintptr_t)actual_disk - (uintptr_t)new_disk );
 						const uint8_t *sig = sack_vfs_get_signature2( (POINTER)((uintptr_t)actual_disk-BLOCK_SIZE), new_disk );
-						LogBinary( sig, BLOCK_SIZE / 2 );
+						//LogBinary( sig, BLOCK_SIZE / 2 );
 						if( memcmp( sig, (POINTER)(((uintptr_t)actual_disk)-BLOCK_SIZE), BLOCK_SIZE/2 ) ) {
 							lprintf( "Signature failed comparison; the core has changed since it was attached." );
 							CloseSpace( vol->diskReal );
@@ -58378,7 +58442,8 @@ static BLOCKINDEX vfs_fs_GetNextBlock( struct sack_vfs_fs_volume *vol, BLOCKINDE
 	else
 		LoG( "Block after %d is %d", block, check_val );
 	if( check_val == EOFBLOCK || check_val == EOBBLOCK ) {
-		LoG( "(DOUBLE UPDATE] This adds a new block becuase after %d is %d", block, check_val );
+ /*stupid triglyphs*/
+		LoG( "(DOUBLE UPDATE?" "?) This adds a new block becuase after %d is %d", block, check_val );
 		if( expand ) {
 			BLOCKINDEX key = vol->key?((BLOCKINDEX*)vol->usekey[BC(BAT)])[block & (BLOCKS_PER_BAT-1)]:0;
 			check_val = _fs_GetFreeBlock( vol, init );
